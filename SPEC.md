@@ -30,7 +30,7 @@ Organization in cards (see UI section)
 - Option to disable all AI for a 100% offline mode
 - Semantic search (tolerant to vague or approximate queries)
 - Local chatbot/assistant for fuzzy content retrieval
-- Prototype implements enrichment with a pluggable AI helper. By default it uses a lightweight heuristic to extract keywords and a short description from card content. When a `HUGGINGFACE_API_KEY` is provided, the helper calls Hugging Face's hosted models—`facebook/bart-large-cnn` for summarization, `HuggingFaceH4/zephyr-7b-beta` for chat replies, and `runwayml/stable-diffusion-v1-5` for image generation. A basic chatbot uses this layer to answer natural-language queries and surface matching cards.
+ - Prototype implements enrichment with a pluggable AI helper. By default it uses a lightweight heuristic to extract keywords and a short description from card content. When a `HUGGINGFACE_API_KEY` is provided, the helper queries the Hugging Face Hub to select popular models for summarization, chat replies, and image generation, then uses the Hugging Face inference API to produce results. A basic chatbot uses this layer to answer natural-language queries and surface matching cards.
 
 ### 3.3 Decks & Navigation
 - Thematic groups of cards, created manually or automatically based on tags

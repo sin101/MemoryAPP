@@ -16,7 +16,7 @@ class MemoryApp {
     if (options.ai) {
       this.ai = options.ai;
     } else if (process.env.HUGGINGFACE_API_KEY) {
-      this.ai = new HuggingFaceAI();
+      this.ai = new HuggingFaceAI({ autoSelect: true });
     } else {
       this.ai = new SimpleAI();
     }

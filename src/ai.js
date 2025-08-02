@@ -4,6 +4,25 @@ const HF_MODELS = {
   image: 'runwayml/stable-diffusion-v1-5'
 };
 
+async function fetchTopModel(apiKey, pipelineTag, search) {
+  let url = `https://huggingface.co/api/models?pipeline_tag=${pipelineTag}&sort=downloads&direction=-1&limit=1`;
+  if (search) {
+    url += `&search=${encodeURIComponent(search)}`;
+  }
+  try {
+    const res = await fetch(url, {
+      headers: { Authorization: `Bearer ${apiKey}` }
+    });
+    if (!res.ok) {
+      return null;
+    }
+    const data = await res.json();
+    return data[0]?.modelId || null;
+  } catch (e) {
+    return null;
+  }
+}
+
 class SimpleAI {
   async summarize(text) {
     return text.split(/\s+/).slice(0, 20).join(' ');
@@ -25,12 +44,37 @@ class SimpleAI {
 }
 
 class HuggingFaceAI {
+  static _cachedModels = null;
+
   constructor(options = {}) {
     this.apiKey = options.apiKey || process.env.HUGGINGFACE_API_KEY;
     this.models = Object.assign({}, HF_MODELS, options.models);
+    if (options.autoSelect !== false) {
+      this.ready = (async () => {
+        if (!HuggingFaceAI._cachedModels) {
+          const rec = await HuggingFaceAI.getRecommendedModels(this.apiKey);
+          HuggingFaceAI._cachedModels = rec;
+        }
+        this.models = Object.assign({}, this.models, HuggingFaceAI._cachedModels);
+      })();
+    } else {
+      this.ready = Promise.resolve();
+    }
+  }
+
+  static async getRecommendedModels(apiKey = process.env.HUGGINGFACE_API_KEY) {
+    const summarization = await fetchTopModel(apiKey, 'summarization');
+    const chat = await fetchTopModel(apiKey, 'text-generation', 'chat');
+    const image = await fetchTopModel(apiKey, 'text-to-image', 'stable-diffusion');
+    return {
+      summarization: summarization || HF_MODELS.summarization,
+      chat: chat || HF_MODELS.chat,
+      image: image || HF_MODELS.image
+    };
   }
 
   async summarize(text) {
+    await this.ready;
     try {
       const data = await this._json(this.models.summarization, { inputs: text });
       if (Array.isArray(data) && data[0] && data[0].summary_text) {
@@ -43,6 +87,7 @@ class HuggingFaceAI {
   }
 
   async generateIllustration(prompt) {
+    await this.ready;
     try {
       const base64 = await this._binary(this.models.image, { inputs: prompt });
       return `data:image/png;base64,${base64}`;
@@ -52,6 +97,7 @@ class HuggingFaceAI {
   }
 
   async chat(query, app) {
+    await this.ready;
     try {
       const context = Array.from(app.cards.values())
         .slice(0, 3)
