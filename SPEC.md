@@ -30,7 +30,7 @@ Organization in cards (see UI section)
 - Option to disable all AI for a 100% offline mode
 - Semantic search (tolerant to vague or approximate queries)
 - Local chatbot/assistant for fuzzy content retrieval
- - Prototype implements enrichment with a lightweight heuristic that extracts keywords and a short description from card content when AI features are enabled. The same routine generates a brief summary and a placeholder illustration filename.
+ - Prototype implements enrichment with a pluggable AI helper. By default it uses a lightweight heuristic to extract keywords and a short description from card content. The same helper can call external language models to produce summaries and image models to generate illustration filenames. A basic chatbot uses this layer to answer natural-language queries and surface matching cards.
 
 ### 3.3 Decks & Navigation
 - Thematic groups of cards, created manually or automatically based on tags
@@ -100,6 +100,7 @@ Organization in cards (see UI section)
 - Execution via HuggingFace Transformers.js or Node.js/Rust backend
 - Vector search (FAISS, Annoy…)
 - HuggingFace API support with user key
+ - Prototype exposes a modular AI layer for summarization, illustration generation, and chatbot responses so integrators can swap in custom LLMs or image models.
 
 ### 5.4 Web Suggestions
 - External search: integration of web APIs (Google, Wikipedia, YouTube…)

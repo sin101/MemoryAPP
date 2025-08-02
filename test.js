@@ -5,7 +5,7 @@ const MemoryApp = require('./src/app');
 (async () => {
   const app = new MemoryApp();
 
-  const card = app.createCard({
+  const card = await app.createCard({
     title: 'First note',
     content: 'Hello world',
     tags: ['intro']
@@ -20,7 +20,7 @@ const MemoryApp = require('./src/app');
   assert.ok(app.decks.get('general').cards.has(card.id), 'Deck should contain card');
   assert.strictEqual(app.searchByTag('intro')[0].id, card.id, 'Search should return the card');
 
-  const second = app.createCard({
+  const second = await app.createCard({
     title: 'Second note',
     content: 'Goodbye world',
     tags: ['outro']
@@ -42,7 +42,7 @@ const MemoryApp = require('./src/app');
   assert.ok(!app.decks.get('general').cards.has(card.id), 'Deck should no longer contain removed card');
   assert.strictEqual(app.getLinks(second.id).length, 0, 'Links involving removed card should be cleaned up');
 
-  const updated = app.updateCard(second.id, { title: 'Second updated', tags: ['edited'] });
+  const updated = await app.updateCard(second.id, { title: 'Second updated', tags: ['edited'] });
   assert.strictEqual(updated.title, 'Second updated', 'Card title should be updated');
   assert.ok(updated.tags.has('edited'), 'Updated card should have new tag');
   assert.strictEqual(app.searchByTag('edited')[0].id, second.id, 'Search should return updated card');
@@ -55,17 +55,17 @@ const MemoryApp = require('./src/app');
 
   // AI enrichment and search on description
   const aiApp = new MemoryApp();
-  const aiCard = aiApp.createCard({
+  const aiCard = await aiApp.createCard({
     title: 'AI note',
     content: 'Graph theory algorithms'
   });
   assert.ok(aiCard.tags.size > 0, 'AI should add tags');
   assert.ok(aiCard.description, 'AI should add description');
   aiApp.setAIEnabled(false);
-  const plainCard = aiApp.createCard({ title: 'Plain', content: 'Just text' });
+  const plainCard = await aiApp.createCard({ title: 'Plain', content: 'Just text' });
   assert.strictEqual(plainCard.tags.size, 0, 'No tags when AI disabled');
   assert.ok(!plainCard.description, 'No description when AI disabled');
-  aiApp.updateCard(plainCard.id, { description: 'manual desc' });
+  await aiApp.updateCard(plainCard.id, { description: 'manual desc' });
   assert.strictEqual(aiApp.searchByText('manual')[0].id, plainCard.id, 'Search should include description');
   const aiFile = 'ai-memory.json';
   aiApp.saveToFile(aiFile);
@@ -77,7 +77,7 @@ const MemoryApp = require('./src/app');
   assert.strictEqual(loadedAiCard.createdAt, aiCard.createdAt, 'Creation date should persist');
 
   // create additional data to test persistence
-  const third = app.createCard({ title: 'Third', content: 'More', tags: [] });
+  const third = await app.createCard({ title: 'Third', content: 'More', tags: [] });
   app.addCardToDeck(second.id, 'final');
   app.addCardToDeck(third.id, 'final');
   app.createLink(second.id, third.id, 'related');
@@ -105,9 +105,25 @@ const MemoryApp = require('./src/app');
   const typeFiltered = loaded.getGraph({ deck: 'final', linkType: 'related' });
   assert.strictEqual(typeFiltered.edges.length, 1, 'Link type filter should keep matching edges');
 
+  // Chatbot retrieval
+  const chatReply = await app.chat('Second updated');
+  assert.ok(chatReply.includes('Second updated'), 'Chat should reference updated card');
+
+  const customAI = {
+    async summarize() { return 'LLM summary'; },
+    async generateIllustration() { return 'llm.png'; },
+    async chat() { return 'custom reply'; }
+  };
+  const customApp = new MemoryApp({ ai: customAI });
+  const customCard = await customApp.createCard({ title: 'Custom', content: 'something' });
+  assert.strictEqual(customCard.summary, 'LLM summary', 'Custom summarizer should be used');
+  assert.strictEqual(customCard.illustration, 'llm.png', 'Custom illustrator should be used');
+  const customChat = await customApp.chat('anything');
+  assert.strictEqual(customChat, 'custom reply', 'Custom chat should be used');
+
   // Web suggestions
   const suggestApp = new MemoryApp();
-  suggestApp.createCard({ title: 'JS', content: '', tags: ['JavaScript'] });
+  await suggestApp.createCard({ title: 'JS', content: '', tags: ['JavaScript'] });
   const suggestions = await suggestApp.getWebSuggestions(1);
   assert.ok(suggestions.length > 0, 'Should return at least one suggestion');
   assert.ok(suggestions[0].title, 'Suggestion should have a title');
@@ -118,7 +134,7 @@ const MemoryApp = require('./src/app');
   // Database persistence
   const dbFile = 'cards.db';
   const dbApp1 = new MemoryApp({ dbPath: dbFile });
-  const dbCard = dbApp1.createCard({ title: 'DB', content: 'Stored in sqlite' });
+  const dbCard = await dbApp1.createCard({ title: 'DB', content: 'Stored in sqlite' });
   dbApp1.db.close();
   const dbApp2 = new MemoryApp({ dbPath: dbFile });
   assert.ok(dbApp2.cards.has(dbCard.id), 'DB app should load existing card');

@@ -3,6 +3,7 @@ const Deck = require('./deck');
 const Link = require('./link');
 const fs = require('fs');
 const MemoryDB = require('./db');
+const { SimpleAI } = require('./ai');
 
 class MemoryApp {
   constructor(options = {}) {
@@ -12,13 +13,14 @@ class MemoryApp {
     this.nextId = 1;
     this.aiEnabled = true;
     this.webSuggestionsEnabled = true;
+    this.ai = options.ai || new SimpleAI();
     this.db = options.dbPath ? new MemoryDB(options.dbPath) : null;
     if (this.db) {
       this.loadFromDB();
     }
   }
 
-  createCard(data) {
+  async createCard(data) {
     if (!data.id) {
       data.id = String(this.nextId++);
     } else {
@@ -31,7 +33,7 @@ class MemoryApp {
     this.cards.set(card.id, card);
     if (this.aiEnabled) {
       this.enrichCard(card.id);
-      this.processCard(card);
+      await this.processCard(card);
     }
     if (this.db) {
       this.db.saveCard(card);
@@ -88,7 +90,7 @@ class MemoryApp {
     }
   }
 
-  updateCard(cardId, data) {
+  async updateCard(cardId, data) {
     const card = this.cards.get(cardId);
     if (!card) {
       return null;
@@ -96,7 +98,7 @@ class MemoryApp {
     card.update(data);
     if (this.aiEnabled) {
       this.enrichCard(cardId);
-      this.processCard(card);
+      await this.processCard(card);
     }
     if (this.db) {
       this.db.saveCard(card);
@@ -292,21 +294,28 @@ class MemoryApp {
     return { nodes, edges };
   }
 
-  processCard(card) {
+  async processCard(card) {
     if (!card.summary && card.content) {
-      card.summary = this.summarize(card.content);
+      card.summary = await this.summarize(card.content);
     }
     if (!card.illustration) {
-      card.illustration = this.generateIllustration(card.title);
+      card.illustration = await this.generateIllustration(card.title);
     }
   }
 
-  summarize(text) {
-    return text.split(/\s+/).slice(0, 20).join(' ');
+  async summarize(text) {
+    return this.ai.summarize(text);
   }
 
-  generateIllustration(title) {
-    return `illustration-${title.toLowerCase().replace(/[^a-z0-9]+/g, '_')}.png`;
+  async generateIllustration(title) {
+    return this.ai.generateIllustration(title);
+  }
+
+  async chat(query) {
+    if (!this.aiEnabled) {
+      return 'AI disabled';
+    }
+    return this.ai.chat(query, this);
   }
 
   toJSON() {
