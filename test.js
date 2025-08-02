@@ -20,6 +20,11 @@ const { fetchSuggestion } = require('./src/suggestions');
   assert.strictEqual(app.cards.size, 1, 'Card count should be 1');
   assert.ok(app.decks.get('general').cards.has(card.id), 'Deck should contain card');
   assert.strictEqual(app.searchByTag('intro')[0].id, card.id, 'Search should return the card');
+  await assert.rejects(
+    app.createCard({ id: card.id, title: 'Dup', content: 'Dup content' }),
+    /already exists/
+  );
+  assert.strictEqual(app.cards.size, 1, 'Duplicate card should not be added');
 
   const second = await app.createCard({
     title: 'Second note',

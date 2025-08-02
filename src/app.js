@@ -40,6 +40,9 @@ class MemoryApp extends EventEmitter {
         this.nextId = num + 1;
       }
     }
+    if (this.cards.has(data.id)) {
+      throw new Error('Card ID already exists');
+    }
     const card = new Card(data);
     this.cards.set(card.id, card);
     this.emit('cardCreated', card);
