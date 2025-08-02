@@ -17,6 +17,8 @@ Supported formats:
 - Web links (URLs, social media, videos, etc.)
 - Media files (audio/video — optional/future)
 
+Each card stores the original source (file path, URL, or raw data) alongside an optional textual `content` representation so that every type of material can be summarized and indexed.
+
 Quick add:
 - Direct paste (Ctrl+V), drag & drop, "Add" button (paste, upload, capture)
 - Immediate preview of content, with ability to edit/cancel before saving
@@ -30,6 +32,7 @@ Organization in cards (see UI section)
 - Option to disable all AI for a 100% offline mode
 - Semantic search (tolerant to vague or approximate queries)
 - Local chatbot/assistant for fuzzy content retrieval
+ - Summary generation falls back to the card's source when no textual content is supplied, enabling enrichment of images, audio, video, or external links.
  - Prototype implements enrichment with a pluggable AI helper. By default it uses a lightweight heuristic to extract keywords and a short description from card content. When a `HUGGINGFACE_API_KEY` is provided, the helper queries the Hugging Face Hub to select popular models for summarization, chat replies, and image generation, then uses the Hugging Face inference API to produce results. A basic chatbot uses this layer to answer natural-language queries and surface matching cards.
  - The library is event driven, emitting notifications for card, deck, and link changes. AI enrichment can run in the background and will emit a `cardProcessed` event once summaries and illustrations are available, keeping the interface responsive while long-running model calls complete.
 

@@ -53,6 +53,22 @@ const MemoryApp = require('./src/app');
   assert.ok(!app.decks.has('general'), 'Deck should be removed from app');
   assert.ok(!app.cards.get(second.id).decks.has('general'), 'Card should no longer list removed deck');
 
+  // Generic content handling with source persistence
+  const mediaApp = new MemoryApp();
+  const mediaCard = await mediaApp.createCard({
+    title: 'Photo',
+    source: 'photo.png',
+    type: 'image',
+    tags: ['pic']
+  });
+  assert.ok(mediaCard.summary, 'Media card should have a summary');
+  assert.strictEqual(mediaApp.searchByTag('pic')[0].id, mediaCard.id, 'Tag search should find media card');
+  const mediaFile = 'media.json';
+  mediaApp.saveToFile(mediaFile);
+  const loadedMedia = MemoryApp.loadFromFile(mediaFile);
+  fs.unlinkSync(mediaFile);
+  assert.strictEqual(loadedMedia.cards.get(mediaCard.id).source, 'photo.png', 'Source should persist through export');
+
   // AI enrichment and search on description
   const aiApp = new MemoryApp();
   const aiCard = await aiApp.createCard({
@@ -146,11 +162,12 @@ const MemoryApp = require('./src/app');
   // Database persistence
   const dbFile = 'cards.db';
   const dbApp1 = new MemoryApp({ dbPath: dbFile });
-  const dbCard = await dbApp1.createCard({ title: 'DB', content: 'Stored in sqlite' });
+  const dbCard = await dbApp1.createCard({ title: 'DB', content: 'Stored in sqlite', source: 'dbsource.txt' });
   dbApp1.db.close();
   const dbApp2 = new MemoryApp({ dbPath: dbFile });
   assert.ok(dbApp2.cards.has(dbCard.id), 'DB app should load existing card');
   assert.strictEqual(dbApp2.cards.get(dbCard.id).summary, dbCard.summary, 'Summary should persist in DB');
+  assert.strictEqual(dbApp2.cards.get(dbCard.id).source, 'dbsource.txt', 'Source should persist in DB');
   dbApp2.db.close();
   fs.unlinkSync(dbFile);
 

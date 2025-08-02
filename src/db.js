@@ -24,6 +24,7 @@ class MemoryDB {
       id TEXT PRIMARY KEY,
       title TEXT,
       content TEXT,
+      source TEXT,
       tags TEXT,
       decks TEXT,
       type TEXT,
@@ -36,7 +37,7 @@ class MemoryDB {
   }
 
   saveCard(card) {
-    const sql = `INSERT OR REPLACE INTO cards (id,title,content,tags,decks,type,description,createdAt,summary,illustration) VALUES ('${esc(card.id)}','${esc(card.title)}','${esc(card.content)}','${esc(JSON.stringify(Array.from(card.tags)))}','${esc(JSON.stringify(Array.from(card.decks)))}','${esc(card.type)}','${esc(card.description)}','${esc(card.createdAt)}','${esc(card.summary || '')}','${esc(card.illustration || '')}');`;
+    const sql = `INSERT OR REPLACE INTO cards (id,title,content,source,tags,decks,type,description,createdAt,summary,illustration) VALUES ('${esc(card.id)}','${esc(card.title)}','${esc(card.content)}','${esc(card.source)}','${esc(JSON.stringify(Array.from(card.tags)))}','${esc(JSON.stringify(Array.from(card.decks)))}','${esc(card.type)}','${esc(card.description)}','${esc(card.createdAt)}','${esc(card.summary || '')}','${esc(card.illustration || '')}');`;
     runSql(this.path, sql);
   }
 
@@ -59,7 +60,8 @@ class MemoryDB {
       description: r.description,
       createdAt: r.createdAt,
       summary: r.summary,
-      illustration: r.illustration
+      illustration: r.illustration,
+      source: r.source
     }));
   }
 

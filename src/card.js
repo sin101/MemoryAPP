@@ -3,6 +3,7 @@ class Card {
     id,
     title,
     content,
+    source = '',
     tags = [],
     decks = [],
     type = 'text',
@@ -14,6 +15,7 @@ class Card {
     this.id = id;
     this.title = title;
     this.content = content;
+    this.source = source;
     this.tags = new Set(tags);
     this.decks = new Set(decks);
     this.type = type;
@@ -35,12 +37,15 @@ class Card {
     this.tags.delete(tag);
   }
 
-  update({ title, content, tags, description, type, summary, illustration }) {
+  update({ title, content, source, tags, description, type, summary, illustration }) {
     if (title !== undefined) {
       this.title = title;
     }
     if (content !== undefined) {
       this.content = content;
+    }
+    if (source !== undefined) {
+      this.source = source;
     }
     if (tags !== undefined) {
       this.tags = new Set(tags);

@@ -78,16 +78,17 @@ class MemoryApp extends EventEmitter {
     if (!card) {
       return null;
     }
-    if (card.content && card.tags.size === 0) {
+    const basis = card.content || card.source || card.title;
+    if (basis && card.tags.size === 0) {
       const words = Array.from(
-        new Set(card.content.toLowerCase().split(/\W+/).filter(w => w.length > 3))
+        new Set(basis.toLowerCase().split(/\W+/).filter(w => w.length > 3))
       );
       for (const w of words.slice(0, 3)) {
         card.addTag(w);
       }
     }
-    if (card.content && !card.description) {
-      card.description = card.content.slice(0, 100);
+    if (basis && !card.description) {
+      card.description = basis.slice(0, 100);
     }
     return card;
   }
@@ -347,8 +348,9 @@ class MemoryApp extends EventEmitter {
 
   async processCard(card) {
     const tasks = [];
-    if (!card.summary && card.content) {
-      tasks.push(this.summarize(card.content).then(s => { card.summary = s; }));
+    if (!card.summary) {
+      const text = card.content || card.source || card.title;
+      tasks.push(this.summarize(text).then(s => { card.summary = s; }));
     }
     if (!card.illustration) {
       tasks.push(this.generateIllustration(card.title).then(i => { card.illustration = i; }));
@@ -379,6 +381,7 @@ class MemoryApp extends EventEmitter {
         id: card.id,
         title: card.title,
         content: card.content,
+        source: card.source,
         tags: Array.from(card.tags),
         decks: Array.from(card.decks),
         type: card.type,
@@ -407,7 +410,7 @@ class MemoryApp extends EventEmitter {
   static fromJSON(data) {
     const app = new MemoryApp();
     app.aiEnabled = false;
-    for (const cardData of data.cards || []) {
+      for (const cardData of data.cards || []) {
       const card = new Card(cardData);
       app.cards.set(card.id, card);
       const num = Number(card.id);
