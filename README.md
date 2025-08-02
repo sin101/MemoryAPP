@@ -13,7 +13,7 @@ An event system makes the prototype dynamic and responsive. `MemoryApp` emits `c
 
 When a `HUGGINGFACE_API_KEY` environment variable is present, the app will query the Hugging Face Hub to pick popular models for summarization, chat, and image generation. These selections are cached at runtime and used for rich summaries, chatbot answers, and illustrative images. Without the key, a simple heuristic AI remains available for offline use.
 
-The prototype also experiments with web suggestions: when enabled, the app will gather card tags and query the Wikipedia API to propose related content. Suggestions can be turned off for privacy or offline use.
+The prototype also experiments with web suggestions: when enabled, the app will gather card tags and query the Wikipedia API to propose related content. Suggestions can be turned off for privacy or offline use. The API now exposes helpers to retrieve recommendations for a selected card or to surface theme suggestions from the most common tags. A small static demo in the `public/` folder presents a Pokémon-style card layout and populates a suggestion list by querying Wikipedia for either the selected card's tags or the top themes.
 
 ### Running tests
 

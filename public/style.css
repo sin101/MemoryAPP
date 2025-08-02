@@ -1,0 +1,47 @@
+body {
+  font-family: sans-serif;
+  background: #f0f0f0;
+  margin: 20px;
+}
+
+.card-grid {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 1rem;
+}
+
+.card {
+  width: 200px;
+  background: #fff;
+  border: 3px solid #fcb900;
+  border-radius: 10px;
+  box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+  padding: 1rem;
+  cursor: pointer;
+  transition: transform 0.2s;
+}
+
+.card:hover {
+  transform: scale(1.05);
+}
+
+.card h3 {
+  margin-top: 0;
+}
+
+.tags {
+  margin-top: 0.5rem;
+}
+
+.tag {
+  display: inline-block;
+  background: #e0e0e0;
+  border-radius: 8px;
+  padding: 2px 6px;
+  margin: 2px;
+  font-size: 0.8rem;
+}
+
+#suggestions {
+  margin-top: 2rem;
+}

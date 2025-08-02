@@ -139,13 +139,30 @@ const MemoryApp = require('./src/app');
 
   // Web suggestions
   const suggestApp = new MemoryApp();
-  await suggestApp.createCard({ title: 'JS', content: '', tags: ['JavaScript'] });
+  await suggestApp.createCard({ title: 'JS', content: '', tags: ['JavaScript', 'code'] });
+  const originalFetch = global.fetch;
+  global.fetch = async () => ({
+    ok: true,
+    async json() {
+      return {
+        title: 'Stub',
+        extract: 'stub description',
+        content_urls: { desktop: { page: 'https://example.com' } },
+      };
+    }
+  });
   const suggestions = await suggestApp.getWebSuggestions(1);
-  assert.ok(suggestions.length > 0, 'Should return at least one suggestion');
-  assert.ok(suggestions[0].title, 'Suggestion should have a title');
+  assert.strictEqual(suggestions.length, 1, 'Should return one suggestion');
+  assert.strictEqual(suggestions[0].title, 'Stub', 'Suggestion should use stub');
+  const cardId = Array.from(suggestApp.cards.keys())[0];
+  const cardSuggestions = await suggestApp.getCardSuggestions(cardId, 1);
+  assert.strictEqual(cardSuggestions.length, 1, 'Card suggestion should return one result');
+  const themeSuggestions = await suggestApp.getThemeSuggestions(1);
+  assert.strictEqual(themeSuggestions.length, 1, 'Theme suggestion should return one result');
   suggestApp.setWebSuggestionsEnabled(false);
   const noSuggestions = await suggestApp.getWebSuggestions();
   assert.strictEqual(noSuggestions.length, 0, 'No suggestions when disabled');
+  global.fetch = originalFetch;
 
   // Event-driven background processing
   const eventApp = new MemoryApp({ backgroundProcessing: true });

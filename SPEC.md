@@ -49,6 +49,7 @@ Organization in cards (see UI section)
 - Actions: add, edit, ignore, view source
 - Option to disable web suggestions (for offline or privacy-focused usage)
 - The prototype implements this feature with a simple helper that queries the Wikipedia API using existing card tags to propose related articles. Fetching suggestions can be disabled.
+- Suggestions may be requested for an individual card using its tags, or globally by looking at the most common tags to surface theme-based recommendations.
 
 ### 3.5 Graph View Visualization
 - Graphical display of links between cards in a deck
@@ -68,6 +69,7 @@ Organization in cards (see UI section)
 - Clear title, short description, colored tags (bubble/chip), date, type
 - Icons for content type (text, image, link…)
 - Light animation on hover/selection, instant feedback
+- A minimal static page in the `public/` directory demonstrates this design and uses Wikipedia lookups to fill a suggestion list when a card is selected or when the most common themes are considered.
 
 ### 4.2 Display & Navigation
 - Home: card grid, sorted by deck/search/tags

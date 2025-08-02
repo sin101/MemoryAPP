@@ -169,48 +169,78 @@ class MemoryApp extends EventEmitter {
     return results;
   }
 
-  async getWebSuggestions(limit = 3) {
+  async fetchSuggestion(tag) {
+    let suggestion;
+    try {
+      const url = `https://en.wikipedia.org/api/rest_v1/page/summary/${encodeURIComponent(tag)}`;
+      const res = await fetch(url, { headers: { Accept: 'application/json' } });
+      if (res.ok) {
+        const data = await res.json();
+        suggestion = {
+          tag,
+          title: data.title,
+          description: data.extract,
+          url: (data.content_urls && data.content_urls.desktop && data.content_urls.desktop.page) || `https://en.wikipedia.org/wiki/${encodeURIComponent(tag)}`,
+        };
+      }
+    } catch (e) {
+      // ignore network errors and fall back to placeholder
+    }
+    if (!suggestion) {
+      suggestion = {
+        tag,
+        title: tag,
+        description: '',
+        url: `https://en.wikipedia.org/wiki/${encodeURIComponent(tag)}`,
+      };
+    }
+    return suggestion;
+  }
+
+  async getCardSuggestions(cardId, limit = 3) {
     if (!this.webSuggestionsEnabled) {
       return [];
     }
-    const tags = new Set();
-    for (const card of this.cards.values()) {
-      for (const tag of card.tags) {
-        tags.add(tag);
-      }
+    const card = this.cards.get(cardId);
+    if (!card) {
+      return [];
     }
     const results = [];
-    for (const tag of tags) {
+    for (const tag of card.tags) {
       if (results.length >= limit) {
         break;
       }
-      let suggestion;
-      try {
-        const url = `https://en.wikipedia.org/api/rest_v1/page/summary/${encodeURIComponent(tag)}`;
-        const res = await fetch(url, { headers: { Accept: 'application/json' } });
-        if (res.ok) {
-          const data = await res.json();
-          suggestion = {
-            tag,
-            title: data.title,
-            description: data.extract,
-            url: (data.content_urls && data.content_urls.desktop && data.content_urls.desktop.page) || `https://en.wikipedia.org/wiki/${encodeURIComponent(tag)}`,
-          };
-        }
-      } catch (e) {
-        // ignore network errors and fall back to placeholder
-      }
-      if (!suggestion) {
-        suggestion = {
-          tag,
-          title: tag,
-          description: '',
-          url: `https://en.wikipedia.org/wiki/${encodeURIComponent(tag)}`,
-        };
-      }
-      results.push(suggestion);
+      results.push(await this.fetchSuggestion(tag));
     }
     return results;
+  }
+
+  async getThemeSuggestions(limit = 3) {
+    if (!this.webSuggestionsEnabled) {
+      return [];
+    }
+    const counts = new Map();
+    for (const card of this.cards.values()) {
+      for (const tag of card.tags) {
+        counts.set(tag, (counts.get(tag) || 0) + 1);
+      }
+    }
+    const sorted = Array.from(counts.entries())
+      .sort((a, b) => b[1] - a[1])
+      .map(([tag]) => tag);
+    const results = [];
+    for (const tag of sorted) {
+      if (results.length >= limit) {
+        break;
+      }
+      results.push(await this.fetchSuggestion(tag));
+    }
+    return results;
+  }
+
+  async getWebSuggestions(limit = 3) {
+    // backward compatibility: alias to theme suggestions
+    return this.getThemeSuggestions(limit);
   }
 
   removeCard(cardId) {
