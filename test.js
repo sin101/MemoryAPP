@@ -53,6 +53,14 @@ const MemoryApp = require('./src/app');
   assert.ok(!app.decks.has('general'), 'Deck should be removed from app');
   assert.ok(!app.cards.get(second.id).decks.has('general'), 'Card should no longer list removed deck');
 
+  // Searching cards missing title or content
+  const searchApp = new MemoryApp();
+  searchApp.setAIEnabled(false);
+  const titleOnly = await searchApp.createCard({ title: 'Title Only' });
+  const contentOnly = await searchApp.createCard({ content: 'Content Only' });
+  assert.strictEqual(searchApp.searchByText('title')[0].id, titleOnly.id, 'Search should find card lacking content');
+  assert.strictEqual(searchApp.searchByText('content')[0].id, contentOnly.id, 'Search should find card lacking title');
+
   // Generic content handling with source persistence
   const mediaApp = new MemoryApp();
   const mediaCard = await mediaApp.createCard({
