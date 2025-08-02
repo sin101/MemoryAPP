@@ -159,8 +159,8 @@ class MemoryApp extends EventEmitter {
     const q = query.toLowerCase();
     const results = [];
     for (const card of this.cards.values()) {
-      const title = card.title.toLowerCase();
-      const content = card.content.toLowerCase();
+      const title = (card.title || '').toLowerCase();
+      const content = (card.content || '').toLowerCase();
       const description = (card.description || '').toLowerCase();
       if (title.includes(q) || content.includes(q) || description.includes(q)) {
         results.push(card);
