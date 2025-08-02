@@ -205,6 +205,36 @@ const { fetchSuggestion } = require('./src/suggestions');
   assert.ok(fetchCalls >= 6, 'Should attempt multiple sources for suggestions');
   global.fetch = originalFetch;
 
+  // Parallel resolution prefers fastest source
+  const raceFetch = async url => {
+    if (url.includes('news.google')) {
+      await new Promise(r => setTimeout(r, 20));
+      return {
+        ok: true,
+        async text() {
+          return '<rss><channel><item><title>Fast</title><link>https://fast.example</link></item></channel></rss>';
+        },
+      };
+    }
+    await new Promise(r => setTimeout(r, 100));
+    return { ok: false, async json() { return {}; }, async text() { return ''; } };
+  };
+  global.fetch = raceFetch;
+  const start = Date.now();
+  const fastSuggestion = await fetchSuggestion('speed');
+  const duration = Date.now() - start;
+  assert.strictEqual(fastSuggestion.title, 'Fast', 'Should use quickest source');
+  assert.ok(duration < 150, 'Should resolve before slower sources');
+
+  // Fallback when sources hang
+  global.fetch = () => new Promise(() => {});
+  const timeoutStart = Date.now();
+  const timeoutSuggestion = await fetchSuggestion('timeout');
+  const timeoutDuration = Date.now() - timeoutStart;
+  assert.strictEqual(timeoutSuggestion.source, 'none', 'Should fallback on timeout');
+  assert.ok(timeoutDuration < 1500, 'Timeout should prevent hanging');
+  global.fetch = originalFetch;
+
   // Event order for create and update
   const orderCreateApp = new MemoryApp();
   const createEvents = [];
