@@ -7,12 +7,17 @@
   <link rel="stylesheet" href="style.css" />
 </head>
 <body>
-  <h1>MemoryApp Cards</h1>
-  <div id="cards" class="card-grid"></div>
-  <section id="suggestions">
-    <h2>Suggestions</h2>
-    <ul id="suggestion-list"></ul>
-  </section>
+  <header>
+    <h1>MemoryApp Cards</h1>
+    <input type="search" id="search" placeholder="Search cards..." />
+  </header>
+  <main class="layout">
+    <div id="cards" class="card-grid"></div>
+    <aside id="suggestions">
+      <h2>Suggestions</h2>
+      <ul id="suggestion-list"></ul>
+    </aside>
+  </main>
   <script src="suggestions.js"></script>
   <script src="app.js"></script>
 </body>

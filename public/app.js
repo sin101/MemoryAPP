@@ -14,9 +14,11 @@ const sampleCards = [
 ];
 
 const cardsContainer = document.getElementById('cards');
+const searchInput = document.getElementById('search');
 
-function renderCards() {
-  for (const card of sampleCards) {
+function renderCards(cards = sampleCards) {
+  cardsContainer.innerHTML = '';
+  for (const card of cards) {
     const el = document.createElement('div');
     el.className = 'card';
     el.innerHTML = `
@@ -25,14 +27,28 @@ function renderCards() {
       <div class="tags">${card.tags
         .map(t => `<span class="tag" data-tag="${t}">${t}</span>`)
         .join('')}</div>`;
-    el.addEventListener('click', () => showCardSuggestions(card));
+    el.addEventListener('click', () => showCardSuggestions(card, el));
     cardsContainer.appendChild(el);
   }
 }
 
+function filterCards(query) {
+  const q = query.trim().toLowerCase();
+  const filtered = sampleCards.filter(
+    c =>
+      c.title.toLowerCase().includes(q) ||
+      c.tags.some(t => t.toLowerCase().includes(q))
+  );
+  renderCards(filtered);
+}
+
 const { fetchSuggestion } = window.suggestions;
 
-async function showCardSuggestions(card) {
+async function showCardSuggestions(card, element) {
+  document
+    .querySelectorAll('.card.selected')
+    .forEach(el => el.classList.remove('selected'));
+  element.classList.add('selected');
   const list = document.getElementById('suggestion-list');
   list.innerHTML = '';
   for (const tag of card.tags) {
@@ -62,6 +78,15 @@ async function showThemeSuggestions() {
     list.appendChild(li);
   }
 }
+
+searchInput.addEventListener('input', e => {
+  filterCards(e.target.value);
+  const list = document.getElementById('suggestion-list');
+  list.innerHTML = '';
+  if (!e.target.value) {
+    showThemeSuggestions();
+  }
+});
 
 renderCards();
 showThemeSuggestions();
