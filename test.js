@@ -16,6 +16,7 @@ const { fetchSuggestion } = require('./src/suggestions');
   assert.ok(card.illustration, 'Card should have an illustration');
 
   app.addCardToDeck(card.id, 'general');
+  app.addCardToDeck(card.id, 'secondary');
 
   assert.strictEqual(app.cards.size, 1, 'Card count should be 1');
   assert.ok(app.decks.get('general').cards.has(card.id), 'Deck should contain card');
@@ -42,11 +43,30 @@ const { fetchSuggestion } = require('./src/suggestions');
   assert.strictEqual(app.getLinks(card.id)[0].id, link.id, 'Link should be retrievable from first card');
   assert.strictEqual(app.getLinks(second.id)[0].id, link.id, 'Link should be retrievable from second card');
 
+  const extra = await app.createCard({
+    title: 'Extra note',
+    content: 'Another world',
+    tags: ['extra']
+  });
+  const extraLink = app.createLink(extra.id, card.id, 'relates');
+  assert.strictEqual(app.getLinks(extra.id)[0].id, extraLink.id, 'Link should be retrievable from extra card');
+
+  let removedEvents = 0;
+  const onLinkRemoved = () => { removedEvents += 1; };
+  app.on('linkRemoved', onLinkRemoved);
+
   const removed = app.removeCard(card.id);
   assert.ok(removed, 'Card removal should return true');
-  assert.strictEqual(app.cards.size, 1, 'Card count should be 1 after removal');
+  assert.strictEqual(removedEvents, 2, 'Removing card should emit linkRemoved for each link');
+  app.removeListener('linkRemoved', onLinkRemoved);
+  assert.strictEqual(app.cards.size, 2, 'Card count should be 2 after removal');
   assert.ok(!app.decks.get('general').cards.has(card.id), 'Deck should no longer contain removed card');
+  assert.ok(!app.decks.get('secondary').cards.has(card.id), 'All decks should remove the card');
   assert.strictEqual(app.getLinks(second.id).length, 0, 'Links involving removed card should be cleaned up');
+  assert.strictEqual(app.getLinks(extra.id).length, 0, 'All links involving removed card should be cleaned up');
+
+  app.removeCard(extra.id);
+  assert.strictEqual(app.cards.size, 1, 'Card count should be 1 after cleanup');
 
   const updated = await app.updateCard(second.id, { title: 'Second updated', tags: ['edited'] });
   assert.strictEqual(updated.title, 'Second updated', 'Card title should be updated');

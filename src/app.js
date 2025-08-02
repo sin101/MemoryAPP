@@ -257,15 +257,23 @@ class MemoryApp extends EventEmitter {
     if (!card) {
       return false;
     }
-    for (const deckName of card.decks) {
+    const deckNames = Array.from(card.decks);
+    for (const deckName of deckNames) {
       const deck = this.decks.get(deckName);
       if (deck) {
         deck.removeCard(card);
       }
     }
     // remove links involving this card
+    const linkIds = [];
     for (const [id, link] of this.links) {
       if (link.from === cardId || link.to === cardId) {
+        linkIds.push(id);
+      }
+    }
+    for (const id of linkIds) {
+      const link = this.links.get(id);
+      if (link) {
         this.links.delete(id);
         this.emit('linkRemoved', link);
       }
