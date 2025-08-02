@@ -1,0 +1,12 @@
+{
+  "name": "memoryapp",
+  "version": "0.1.0",
+  "description": "Smart personal content management app skeleton",
+  "main": "src/app.js",
+  "scripts": {
+    "test": "node test.js"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "MIT"
+}
