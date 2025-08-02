@@ -192,6 +192,16 @@ const MemoryApp = require('./src/app');
   dbApp2.db.close();
   fs.unlinkSync(dbFile);
 
+  // Repeated open/close cycles should not leave journal files
+  const cycleFile = 'cycle.db';
+  for (let i = 0; i < 3; i++) {
+    const cycleApp = new MemoryApp({ dbPath: cycleFile });
+    await cycleApp.createCard({ title: `Cycle${i}`, content: 'x' });
+    cycleApp.db.close();
+    assert.ok(!fs.existsSync(cycleFile + '-journal'), 'Journal file should not remain after close');
+  }
+  fs.unlinkSync(cycleFile);
+
   console.log('All tests passed');
 })().catch(err => {
   console.error(err);
