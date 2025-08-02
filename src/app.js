@@ -41,24 +41,7 @@ class MemoryApp extends EventEmitter {
     const card = new Card(data);
     this.cards.set(card.id, card);
     this.emit('cardCreated', card);
-    if (this.aiEnabled) {
-      this.enrichCard(card.id);
-      if (this.backgroundProcessing) {
-        this.processCard(card)
-          .then(() => this.emit('cardProcessed', card))
-          .catch(err => this.emit('error', err));
-      } else {
-        await this.processCard(card);
-        this.emit('cardProcessed', card);
-      }
-    }
-    if (this.db) {
-      try {
-        this.db.saveCard(card);
-      } catch (e) {
-        this.emit('error', e);
-      }
-    }
+    await this._processAndPersistCard(card);
     return card;
   }
 
@@ -124,8 +107,13 @@ class MemoryApp extends EventEmitter {
     }
     card.update(data);
     this.emit('cardUpdated', card);
+    await this._processAndPersistCard(card);
+    return card;
+  }
+
+  async _processAndPersistCard(card) {
     if (this.aiEnabled) {
-      this.enrichCard(cardId);
+      this.enrichCard(card.id);
       if (this.backgroundProcessing) {
         this.processCard(card)
           .then(() => this.emit('cardProcessed', card))
@@ -142,7 +130,6 @@ class MemoryApp extends EventEmitter {
         this.emit('error', e);
       }
     }
-    return card;
   }
 
   searchByTag(tag) {

@@ -168,6 +168,22 @@ const MemoryApp = require('./src/app');
   assert.ok(fetchCalls >= 6, 'Should attempt multiple sources for suggestions');
   global.fetch = originalFetch;
 
+  // Event order for create and update
+  const orderCreateApp = new MemoryApp();
+  const createEvents = [];
+  orderCreateApp.on('cardCreated', () => createEvents.push('created'));
+  orderCreateApp.on('cardProcessed', () => createEvents.push('processed'));
+  await orderCreateApp.createCard({ title: 'Order', content: 'test' });
+  assert.deepStrictEqual(createEvents, ['created', 'processed'], 'Create events should fire in order');
+
+  const orderUpdateApp = new MemoryApp();
+  const updateCard = await orderUpdateApp.createCard({ title: 'Before', content: 'update' });
+  const updateEvents = [];
+  orderUpdateApp.on('cardUpdated', () => updateEvents.push('updated'));
+  orderUpdateApp.on('cardProcessed', () => updateEvents.push('processed'));
+  await orderUpdateApp.updateCard(updateCard.id, { title: 'After' });
+  assert.deepStrictEqual(updateEvents, ['updated', 'processed'], 'Update events should fire in order');
+
   // Event-driven background processing
   const eventApp = new MemoryApp({ backgroundProcessing: true });
   const createdPromise = new Promise(res => eventApp.once('cardCreated', res));
