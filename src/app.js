@@ -3,7 +3,7 @@ const Deck = require('./deck');
 const Link = require('./link');
 const fs = require('fs');
 const MemoryDB = require('./db');
-const { SimpleAI } = require('./ai');
+const { SimpleAI, HuggingFaceAI } = require('./ai');
 
 class MemoryApp {
   constructor(options = {}) {
@@ -13,7 +13,13 @@ class MemoryApp {
     this.nextId = 1;
     this.aiEnabled = true;
     this.webSuggestionsEnabled = true;
-    this.ai = options.ai || new SimpleAI();
+    if (options.ai) {
+      this.ai = options.ai;
+    } else if (process.env.HUGGINGFACE_API_KEY) {
+      this.ai = new HuggingFaceAI();
+    } else {
+      this.ai = new SimpleAI();
+    }
     this.db = options.dbPath ? new MemoryDB(options.dbPath) : null;
     if (this.db) {
       this.loadFromDB();
