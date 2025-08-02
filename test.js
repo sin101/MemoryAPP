@@ -133,9 +133,9 @@ const { fetchSuggestion } = require('./src/suggestions');
   for (let i = 0; i < total; i++) {
     await manyApp.createCard({ title: `C${i}`, content: '', tags: ['bulk'] });
   }
-  const start = Date.now();
+  const indexStart = Date.now();
   const bulkResults = manyApp.searchByTag('bulk');
-  const indexedTime = Date.now() - start;
+  const indexedTime = Date.now() - indexStart;
   assert.strictEqual(bulkResults.length, total, 'Indexed search should return all cards');
   const naiveStart = Date.now();
   const naiveResults = Array.from(manyApp.cards.values()).filter(c => c.tags.has('bulk'));
@@ -240,9 +240,9 @@ const { fetchSuggestion } = require('./src/suggestions');
     return { ok: false, async json() { return {}; }, async text() { return ''; } };
   };
   global.fetch = raceFetch;
-  const start = Date.now();
+  const raceStart = Date.now();
   const fastSuggestion = await fetchSuggestion('speed');
-  const duration = Date.now() - start;
+  const duration = Date.now() - raceStart;
   assert.strictEqual(fastSuggestion.title, 'Fast', 'Should use quickest source');
   assert.ok(duration < 150, 'Should resolve before slower sources');
 
