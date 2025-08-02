@@ -394,8 +394,8 @@ class MemoryApp extends EventEmitter {
     };
   }
 
-  saveToFile(path) {
-    fs.writeFileSync(path, JSON.stringify(this.toJSON(), null, 2));
+  async saveToFile(path) {
+    await fs.promises.writeFile(path, JSON.stringify(this.toJSON(), null, 2));
   }
 
   static fromJSON(data) {
@@ -432,8 +432,8 @@ class MemoryApp extends EventEmitter {
     return app;
   }
 
-  static loadFromFile(path) {
-    const data = JSON.parse(fs.readFileSync(path, 'utf8'));
+  static async loadFromFile(path) {
+    const data = JSON.parse(await fs.promises.readFile(path, 'utf8'));
     return MemoryApp.fromJSON(data);
   }
 
