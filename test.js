@@ -54,6 +54,14 @@ const { fetchSuggestion } = require('./src/suggestions');
   assert.ok(!app.decks.has('general'), 'Deck should be removed from app');
   assert.ok(!app.cards.get(second.id).decks.has('general'), 'Card should no longer list removed deck');
 
+  // Searching cards missing title or content
+  const searchApp = new MemoryApp();
+  searchApp.setAIEnabled(false);
+  const titleOnly = await searchApp.createCard({ title: 'Title Only' });
+  const contentOnly = await searchApp.createCard({ content: 'Content Only' });
+  assert.strictEqual(searchApp.searchByText('title')[0].id, titleOnly.id, 'Search should find card lacking content');
+  assert.strictEqual(searchApp.searchByText('content')[0].id, contentOnly.id, 'Search should find card lacking title');
+
   // Generic content handling with source persistence
   const mediaApp = new MemoryApp();
   const mediaCard = await mediaApp.createCard({
@@ -171,6 +179,22 @@ const { fetchSuggestion } = require('./src/suggestions');
   assert.ok(fetchCalls >= 6, 'Should attempt multiple sources for suggestions');
   global.fetch = originalFetch;
 
+  // Event order for create and update
+  const orderCreateApp = new MemoryApp();
+  const createEvents = [];
+  orderCreateApp.on('cardCreated', () => createEvents.push('created'));
+  orderCreateApp.on('cardProcessed', () => createEvents.push('processed'));
+  await orderCreateApp.createCard({ title: 'Order', content: 'test' });
+  assert.deepStrictEqual(createEvents, ['created', 'processed'], 'Create events should fire in order');
+
+  const orderUpdateApp = new MemoryApp();
+  const updateCard = await orderUpdateApp.createCard({ title: 'Before', content: 'update' });
+  const updateEvents = [];
+  orderUpdateApp.on('cardUpdated', () => updateEvents.push('updated'));
+  orderUpdateApp.on('cardProcessed', () => updateEvents.push('processed'));
+  await orderUpdateApp.updateCard(updateCard.id, { title: 'After' });
+  assert.deepStrictEqual(updateEvents, ['updated', 'processed'], 'Update events should fire in order');
+
   // Event-driven background processing
   const eventApp = new MemoryApp({ backgroundProcessing: true });
   const createdPromise = new Promise(res => eventApp.once('cardCreated', res));
@@ -194,6 +218,22 @@ const { fetchSuggestion } = require('./src/suggestions');
   assert.strictEqual(dbApp2.cards.get(dbCard.id).source, 'dbsource.txt', 'Source should persist in DB');
   dbApp2.db.close();
   fs.unlinkSync(dbFile);
+
+  // Link ID uniqueness after deletions and reload
+  const linkApp = new MemoryApp();
+  const c1 = await linkApp.createCard({ title: 'A', content: '' });
+  const c2 = await linkApp.createCard({ title: 'B', content: '' });
+  const c3 = await linkApp.createCard({ title: 'C', content: '' });
+  const firstLink = linkApp.createLink(c1.id, c2.id, 'relates');
+  linkApp.removeLink(firstLink.id);
+  const secondLink = linkApp.createLink(c2.id, c3.id, 'relates');
+  assert.strictEqual(secondLink.id, '2', 'Link IDs should increment after deletion');
+  const linkFile = 'links.json';
+  linkApp.saveToFile(linkFile);
+  const reloaded = MemoryApp.loadFromFile(linkFile);
+  fs.unlinkSync(linkFile);
+  const thirdLink = reloaded.createLink(c1.id, c3.id, 'relates');
+  assert.strictEqual(thirdLink.id, '3', 'Link ID should continue after reload');
 
   console.log('All tests passed');
 })().catch(err => {

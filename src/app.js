@@ -14,6 +14,7 @@ class MemoryApp extends EventEmitter {
     this.decks = new Map();
     this.links = new Map();
     this.nextId = 1;
+    this.nextLinkId = 1;
     this.aiEnabled = true;
     this.webSuggestionsEnabled = true;
     this.backgroundProcessing = !!options.backgroundProcessing;
@@ -42,24 +43,7 @@ class MemoryApp extends EventEmitter {
     const card = new Card(data);
     this.cards.set(card.id, card);
     this.emit('cardCreated', card);
-    if (this.aiEnabled) {
-      this.enrichCard(card.id);
-      if (this.backgroundProcessing) {
-        this.processCard(card)
-          .then(() => this.emit('cardProcessed', card))
-          .catch(err => this.emit('error', err));
-      } else {
-        await this.processCard(card);
-        this.emit('cardProcessed', card);
-      }
-    }
-    if (this.db) {
-      try {
-        this.db.saveCard(card);
-      } catch (e) {
-        this.emit('error', e);
-      }
-    }
+    await this._processAndPersistCard(card);
     return card;
   }
 
@@ -125,8 +109,13 @@ class MemoryApp extends EventEmitter {
     }
     card.update(data);
     this.emit('cardUpdated', card);
+    await this._processAndPersistCard(card);
+    return card;
+  }
+
+  async _processAndPersistCard(card) {
     if (this.aiEnabled) {
-      this.enrichCard(cardId);
+      this.enrichCard(card.id);
       if (this.backgroundProcessing) {
         this.processCard(card)
           .then(() => this.emit('cardProcessed', card))
@@ -143,7 +132,6 @@ class MemoryApp extends EventEmitter {
         this.emit('error', e);
       }
     }
-    return card;
   }
 
   searchByTag(tag) {
@@ -160,8 +148,8 @@ class MemoryApp extends EventEmitter {
     const q = query.toLowerCase();
     const results = [];
     for (const card of this.cards.values()) {
-      const title = card.title.toLowerCase();
-      const content = card.content.toLowerCase();
+      const title = (card.title || '').toLowerCase();
+      const content = (card.content || '').toLowerCase();
       const description = (card.description || '').toLowerCase();
       if (title.includes(q) || content.includes(q) || description.includes(q)) {
         results.push(card);
@@ -268,7 +256,7 @@ class MemoryApp extends EventEmitter {
     if (!from || !to) {
       throw new Error('Both cards must exist to create a link');
     }
-    const id = String(this.links.size + 1);
+    const id = String(this.nextLinkId++);
     const link = new Link({ id, from: fromId, to: toId, type });
     this.links.set(id, link);
     this.emit('linkCreated', link);
@@ -435,6 +423,10 @@ class MemoryApp extends EventEmitter {
       if (app.cards.has(linkData.from) && app.cards.has(linkData.to)) {
         const link = new Link(linkData);
         app.links.set(link.id, link);
+        const num = Number(link.id);
+        if (!Number.isNaN(num) && num >= app.nextLinkId) {
+          app.nextLinkId = num + 1;
+        }
       }
     }
     return app;
