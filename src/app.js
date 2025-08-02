@@ -13,6 +13,7 @@ class MemoryApp extends EventEmitter {
     this.cards = new Map();
     this.decks = new Map();
     this.links = new Map();
+    this.linksByCard = new Map();
     this.tagIndex = new Map();
     this.nextId = 1;
     this.nextLinkId = 1;
@@ -265,17 +266,10 @@ class MemoryApp extends EventEmitter {
       }
     }
     // remove links involving this card
-    const linkIds = [];
-    for (const [id, link] of this.links) {
-      if (link.from === cardId || link.to === cardId) {
-        linkIds.push(id);
-      }
-    }
-    for (const id of linkIds) {
-      const link = this.links.get(id);
-      if (link) {
-        this.links.delete(id);
-        this.emit('linkRemoved', link);
+    const linkIds = this.linksByCard.get(cardId);
+    if (linkIds) {
+      for (const id of Array.from(linkIds)) {
+        this.removeLink(id);
       }
     }
     this.cards.delete(cardId);
@@ -307,6 +301,34 @@ class MemoryApp extends EventEmitter {
     return true;
   }
 
+  _indexLink(link) {
+    if (!this.linksByCard.has(link.from)) {
+      this.linksByCard.set(link.from, new Set());
+    }
+    this.linksByCard.get(link.from).add(link.id);
+    if (!this.linksByCard.has(link.to)) {
+      this.linksByCard.set(link.to, new Set());
+    }
+    this.linksByCard.get(link.to).add(link.id);
+  }
+
+  _unindexLink(link) {
+    const fromSet = this.linksByCard.get(link.from);
+    if (fromSet) {
+      fromSet.delete(link.id);
+      if (fromSet.size === 0) {
+        this.linksByCard.delete(link.from);
+      }
+    }
+    const toSet = this.linksByCard.get(link.to);
+    if (toSet) {
+      toSet.delete(link.id);
+      if (toSet.size === 0) {
+        this.linksByCard.delete(link.to);
+      }
+    }
+  }
+
   createLink(fromId, toId, type = 'related') {
     const from = this.cards.get(fromId);
     const to = this.cards.get(toId);
@@ -316,24 +338,46 @@ class MemoryApp extends EventEmitter {
     const id = String(this.nextLinkId++);
     const link = new Link({ id, from: fromId, to: toId, type });
     this.links.set(id, link);
+    this._indexLink(link);
     this.emit('linkCreated', link);
     return link;
   }
 
   getLinks(cardId) {
+    const ids = this.linksByCard.get(cardId);
+    if (!ids) {
+      return [];
+    }
     const results = [];
-    for (const link of this.links.values()) {
-      if (link.from === cardId || link.to === cardId) {
+    for (const id of ids) {
+      const link = this.links.get(id);
+      if (link) {
         results.push(link);
       }
     }
     return results;
   }
 
+  getLinkedCardIds(cardId) {
+    const ids = this.linksByCard.get(cardId);
+    if (!ids) {
+      return [];
+    }
+    const result = new Set();
+    for (const id of ids) {
+      const link = this.links.get(id);
+      if (link) {
+        result.add(link.from === cardId ? link.to : link.from);
+      }
+    }
+    return Array.from(result);
+  }
+
   removeLink(linkId) {
     const link = this.links.get(linkId);
     const res = this.links.delete(linkId);
     if (res && link) {
+      this._unindexLink(link);
       this.emit('linkRemoved', link);
     }
     return res;
@@ -382,12 +426,27 @@ class MemoryApp extends EventEmitter {
     const includedIds = new Set(nodes.map(n => n.id));
 
     const edges = [];
-    for (const link of this.links.values()) {
-      if (linkTypeFilter && link.type !== linkTypeFilter) {
+    const seen = new Set();
+    for (const id of includedIds) {
+      const linkIds = this.linksByCard.get(id);
+      if (!linkIds) {
         continue;
       }
-      if (includedIds.has(link.from) && includedIds.has(link.to)) {
-        edges.push({ id: link.id, from: link.from, to: link.to, type: link.type });
+      for (const linkId of linkIds) {
+        if (seen.has(linkId)) {
+          continue;
+        }
+        const link = this.links.get(linkId);
+        if (!link) {
+          continue;
+        }
+        seen.add(linkId);
+        if (linkTypeFilter && link.type !== linkTypeFilter) {
+          continue;
+        }
+        if (includedIds.has(link.from) && includedIds.has(link.to)) {
+          edges.push({ id: link.id, from: link.from, to: link.to, type: link.type });
+        }
       }
     }
 
@@ -481,6 +540,7 @@ class MemoryApp extends EventEmitter {
       if (app.cards.has(linkData.from) && app.cards.has(linkData.to)) {
         const link = new Link(linkData);
         app.links.set(link.id, link);
+        app._indexLink(link);
         const num = Number(link.id);
         if (!Number.isNaN(num) && num >= app.nextLinkId) {
           app.nextLinkId = num + 1;
