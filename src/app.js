@@ -212,7 +212,8 @@ class MemoryApp extends EventEmitter {
     if (!card) {
       return false;
     }
-    for (const deckName of card.decks) {
+    const deckNames = Array.from(card.decks);
+    for (const deckName of deckNames) {
       const deck = this.decks.get(deckName);
       if (deck) {
         deck.removeCard(card);

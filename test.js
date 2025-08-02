@@ -16,6 +16,7 @@ const { fetchSuggestion } = require('./src/suggestions');
   assert.ok(card.illustration, 'Card should have an illustration');
 
   app.addCardToDeck(card.id, 'general');
+  app.addCardToDeck(card.id, 'secondary');
 
   assert.strictEqual(app.cards.size, 1, 'Card count should be 1');
   assert.ok(app.decks.get('general').cards.has(card.id), 'Deck should contain card');
@@ -60,6 +61,7 @@ const { fetchSuggestion } = require('./src/suggestions');
   app.removeListener('linkRemoved', onLinkRemoved);
   assert.strictEqual(app.cards.size, 2, 'Card count should be 2 after removal');
   assert.ok(!app.decks.get('general').cards.has(card.id), 'Deck should no longer contain removed card');
+  assert.ok(!app.decks.get('secondary').cards.has(card.id), 'All decks should remove the card');
   assert.strictEqual(app.getLinks(second.id).length, 0, 'Links involving removed card should be cleaned up');
   assert.strictEqual(app.getLinks(extra.id).length, 0, 'All links involving removed card should be cleaned up');
 
