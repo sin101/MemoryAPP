@@ -311,6 +311,26 @@ const { fetchSuggestion } = require('./src/suggestions');
   const thirdLink = reloaded.createLink(c1.id, c3.id, 'relates');
   assert.strictEqual(thirdLink.id, '3', 'Link ID should continue after reload');
 
+  // Suggestion filtering of null results
+  delete require.cache[require.resolve('./src/app')];
+  delete require.cache[require.resolve('./src/suggestions')];
+  require.cache[require.resolve('./src/suggestions')] = {
+    exports: {
+      fetchSuggestion: async tag => tag === 'nulltag'
+        ? null
+        : { tag, title: tag, description: '', url: '', source: 'test' }
+    }
+  };
+  const FilterApp = require('./src/app');
+  const filterApp = new FilterApp();
+  const filterCard = await filterApp.createCard({ title: 'Filter', content: '', tags: ['nulltag', 'good'] });
+  const cardFiltered = await filterApp.getCardSuggestions(filterCard.id, 5);
+  assert.strictEqual(cardFiltered.length, 1, 'Card suggestions should filter out nulls');
+  assert.strictEqual(cardFiltered[0].tag, 'good', 'Non-null suggestion should remain');
+  const themeFiltered = await filterApp.getThemeSuggestions(5);
+  assert.strictEqual(themeFiltered.length, 1, 'Theme suggestions should filter out nulls');
+  assert.strictEqual(themeFiltered[0].tag, 'good', 'Theme should include non-null suggestion');
+
   console.log('All tests passed');
 })().catch(err => {
   console.error(err);

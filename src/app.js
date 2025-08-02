@@ -214,14 +214,15 @@ class MemoryApp extends EventEmitter {
     if (!card) {
       return [];
     }
-    const results = [];
+    const pending = [];
     for (const tag of card.tags) {
-      if (results.length >= limit) {
+      if (pending.length >= limit) {
         break;
       }
-      results.push(await fetchSuggestion(tag, card.type));
+      pending.push(fetchSuggestion(tag, card.type));
     }
-    return results;
+    const results = await Promise.all(pending);
+    return results.filter(r => r);
   }
 
   async getThemeSuggestions(limit = 3) {
@@ -237,14 +238,15 @@ class MemoryApp extends EventEmitter {
     const sorted = Array.from(counts.entries())
       .sort((a, b) => b[1] - a[1])
       .map(([tag]) => tag);
-    const results = [];
+    const pending = [];
     for (const tag of sorted) {
-      if (results.length >= limit) {
+      if (pending.length >= limit) {
         break;
       }
-      results.push(await fetchSuggestion(tag));
+      pending.push(fetchSuggestion(tag));
     }
-    return results;
+    const results = await Promise.all(pending);
+    return results.filter(r => r);
   }
 
   async getWebSuggestions(limit = 3) {
