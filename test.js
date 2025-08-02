@@ -16,6 +16,7 @@ const { fetchSuggestion } = require('./src/suggestions');
   assert.ok(card.illustration, 'Card should have an illustration');
 
   app.addCardToDeck(card.id, 'general');
+  app.addCardToDeck(card.id, 'secondary');
 
   assert.strictEqual(app.cards.size, 1, 'Card count should be 1');
   assert.ok(app.decks.get('general').cards.has(card.id), 'Deck should contain card');
@@ -42,11 +43,30 @@ const { fetchSuggestion } = require('./src/suggestions');
   assert.strictEqual(app.getLinks(card.id)[0].id, link.id, 'Link should be retrievable from first card');
   assert.strictEqual(app.getLinks(second.id)[0].id, link.id, 'Link should be retrievable from second card');
 
+  const extra = await app.createCard({
+    title: 'Extra note',
+    content: 'Another world',
+    tags: ['extra']
+  });
+  const extraLink = app.createLink(extra.id, card.id, 'relates');
+  assert.strictEqual(app.getLinks(extra.id)[0].id, extraLink.id, 'Link should be retrievable from extra card');
+
+  let removedEvents = 0;
+  const onLinkRemoved = () => { removedEvents += 1; };
+  app.on('linkRemoved', onLinkRemoved);
+
   const removed = app.removeCard(card.id);
   assert.ok(removed, 'Card removal should return true');
-  assert.strictEqual(app.cards.size, 1, 'Card count should be 1 after removal');
+  assert.strictEqual(removedEvents, 2, 'Removing card should emit linkRemoved for each link');
+  app.removeListener('linkRemoved', onLinkRemoved);
+  assert.strictEqual(app.cards.size, 2, 'Card count should be 2 after removal');
   assert.ok(!app.decks.get('general').cards.has(card.id), 'Deck should no longer contain removed card');
+  assert.ok(!app.decks.get('secondary').cards.has(card.id), 'All decks should remove the card');
   assert.strictEqual(app.getLinks(second.id).length, 0, 'Links involving removed card should be cleaned up');
+  assert.strictEqual(app.getLinks(extra.id).length, 0, 'All links involving removed card should be cleaned up');
+
+  app.removeCard(extra.id);
+  assert.strictEqual(app.cards.size, 1, 'Card count should be 1 after cleanup');
 
   const updated = await app.updateCard(second.id, { title: 'Second updated', tags: ['edited'] });
   assert.strictEqual(updated.title, 'Second updated', 'Card title should be updated');
@@ -105,6 +125,27 @@ const { fetchSuggestion } = require('./src/suggestions');
   assert.strictEqual(loadedAiCard.description, aiCard.description, 'Description should persist');
   assert.strictEqual(loadedAiCard.type, aiCard.type, 'Type should persist');
   assert.strictEqual(loadedAiCard.createdAt, aiCard.createdAt, 'Creation date should persist');
+
+  // Performance/behavior with many cards
+  const manyApp = new MemoryApp();
+  manyApp.setAIEnabled(false);
+  const total = 500;
+  for (let i = 0; i < total; i++) {
+    await manyApp.createCard({ title: `C${i}`, content: '', tags: ['bulk'] });
+  }
+  const start = Date.now();
+  const bulkResults = manyApp.searchByTag('bulk');
+  const indexedTime = Date.now() - start;
+  assert.strictEqual(bulkResults.length, total, 'Indexed search should return all cards');
+  const naiveStart = Date.now();
+  const naiveResults = Array.from(manyApp.cards.values()).filter(c => c.tags.has('bulk'));
+  const naiveTime = Date.now() - naiveStart;
+  assert.strictEqual(naiveResults.length, total, 'Naive search should match result count');
+  assert.ok(indexedTime <= naiveTime + 20, 'Indexed search should not be significantly slower than naive scan');
+  await manyApp.updateCard(bulkResults[0].id, { tags: ['bulk', 'extra'] });
+  assert.strictEqual(manyApp.searchByTag('extra').length, 1, 'Updated tag should be indexed');
+  manyApp.removeCard(bulkResults[1].id);
+  assert.strictEqual(manyApp.searchByTag('bulk').length, total - 1, 'Removed card should be dropped from index');
 
   // create additional data to test persistence
   const third = await app.createCard({ title: 'Third', content: 'More', tags: [] });
@@ -182,6 +223,36 @@ const { fetchSuggestion } = require('./src/suggestions');
   const noSuggestions = await suggestApp.getWebSuggestions();
   assert.strictEqual(noSuggestions.length, 0, 'No suggestions when disabled');
   assert.ok(fetchCalls >= 6, 'Should attempt multiple sources for suggestions');
+  global.fetch = originalFetch;
+
+  // Parallel resolution prefers fastest source
+  const raceFetch = async url => {
+    if (url.includes('news.google')) {
+      await new Promise(r => setTimeout(r, 20));
+      return {
+        ok: true,
+        async text() {
+          return '<rss><channel><item><title>Fast</title><link>https://fast.example</link></item></channel></rss>';
+        },
+      };
+    }
+    await new Promise(r => setTimeout(r, 100));
+    return { ok: false, async json() { return {}; }, async text() { return ''; } };
+  };
+  global.fetch = raceFetch;
+  const start = Date.now();
+  const fastSuggestion = await fetchSuggestion('speed');
+  const duration = Date.now() - start;
+  assert.strictEqual(fastSuggestion.title, 'Fast', 'Should use quickest source');
+  assert.ok(duration < 150, 'Should resolve before slower sources');
+
+  // Fallback when sources hang
+  global.fetch = () => new Promise(() => {});
+  const timeoutStart = Date.now();
+  const timeoutSuggestion = await fetchSuggestion('timeout');
+  const timeoutDuration = Date.now() - timeoutStart;
+  assert.strictEqual(timeoutSuggestion.source, 'none', 'Should fallback on timeout');
+  assert.ok(timeoutDuration < 1500, 'Timeout should prevent hanging');
   global.fetch = originalFetch;
 
   // Event order for create and update

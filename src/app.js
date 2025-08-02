@@ -13,6 +13,7 @@ class MemoryApp extends EventEmitter {
     this.cards = new Map();
     this.decks = new Map();
     this.links = new Map();
+    this.tagIndex = new Map();
     this.nextId = 1;
     this.nextLinkId = 1;
     this.aiEnabled = true;
@@ -47,6 +48,7 @@ class MemoryApp extends EventEmitter {
     this.cards.set(card.id, card);
     this.emit('cardCreated', card);
     await this._processAndPersistCard(card);
+    this._updateTagIndex(card);
     return card;
   }
 
@@ -110,9 +112,11 @@ class MemoryApp extends EventEmitter {
     if (!card) {
       return null;
     }
+    const oldTags = new Set(card.tags);
     card.update(data);
     this.emit('cardUpdated', card);
     await this._processAndPersistCard(card);
+    this._updateTagIndex(card, oldTags);
     return card;
   }
 
@@ -138,9 +142,14 @@ class MemoryApp extends EventEmitter {
   }
 
   searchByTag(tag) {
+    const ids = this.tagIndex.get(tag);
+    if (!ids) {
+      return [];
+    }
     const results = [];
-    for (const card of this.cards.values()) {
-      if (card.tags.has(tag)) {
+    for (const id of ids) {
+      const card = this.cards.get(id);
+      if (card) {
         results.push(card);
       }
     }
@@ -159,6 +168,42 @@ class MemoryApp extends EventEmitter {
       }
     }
     return results;
+  }
+
+  _addToTagIndex(card) {
+    for (const tag of card.tags) {
+      if (!this.tagIndex.has(tag)) {
+        this.tagIndex.set(tag, new Set());
+      }
+      this.tagIndex.get(tag).add(card.id);
+    }
+  }
+
+  _removeFromTagIndex(card) {
+    for (const tag of card.tags) {
+      const set = this.tagIndex.get(tag);
+      if (set) {
+        set.delete(card.id);
+        if (set.size === 0) {
+          this.tagIndex.delete(tag);
+        }
+      }
+    }
+  }
+
+  _updateTagIndex(card, oldTags = new Set()) {
+    for (const tag of oldTags) {
+      if (!card.tags.has(tag)) {
+        const set = this.tagIndex.get(tag);
+        if (set) {
+          set.delete(card.id);
+          if (set.size === 0) {
+            this.tagIndex.delete(tag);
+          }
+        }
+      }
+    }
+    this._addToTagIndex(card);
   }
 
   async getCardSuggestions(cardId, limit = 3) {
@@ -214,20 +259,29 @@ class MemoryApp extends EventEmitter {
     if (!card) {
       return false;
     }
-    for (const deckName of card.decks) {
+    const deckNames = Array.from(card.decks);
+    for (const deckName of deckNames) {
       const deck = this.decks.get(deckName);
       if (deck) {
         deck.removeCard(card);
       }
     }
     // remove links involving this card
+    const linkIds = [];
     for (const [id, link] of this.links) {
       if (link.from === cardId || link.to === cardId) {
+        linkIds.push(id);
+      }
+    }
+    for (const id of linkIds) {
+      const link = this.links.get(id);
+      if (link) {
         this.links.delete(id);
         this.emit('linkRemoved', link);
       }
     }
     this.cards.delete(cardId);
+    this._removeFromTagIndex(card);
     this.emit('cardRemoved', card);
     if (this.db) {
       try {
@@ -409,6 +463,7 @@ class MemoryApp extends EventEmitter {
       for (const cardData of data.cards || []) {
       const card = new Card(cardData);
       app.cards.set(card.id, card);
+      app._addToTagIndex(card);
       const num = Number(card.id);
       if (!Number.isNaN(num) && num >= app.nextId) {
         app.nextId = num + 1;
@@ -447,6 +502,7 @@ class MemoryApp extends EventEmitter {
     for (const data of stored) {
       const card = new Card(data);
       this.cards.set(card.id, card);
+      this._addToTagIndex(card);
       const num = Number(card.id);
       if (!Number.isNaN(num) && num >= this.nextId) {
         this.nextId = num + 1;
