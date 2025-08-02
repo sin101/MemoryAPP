@@ -106,6 +106,27 @@ const { fetchSuggestion } = require('./src/suggestions');
   assert.strictEqual(loadedAiCard.type, aiCard.type, 'Type should persist');
   assert.strictEqual(loadedAiCard.createdAt, aiCard.createdAt, 'Creation date should persist');
 
+  // Performance/behavior with many cards
+  const manyApp = new MemoryApp();
+  manyApp.setAIEnabled(false);
+  const total = 500;
+  for (let i = 0; i < total; i++) {
+    await manyApp.createCard({ title: `C${i}`, content: '', tags: ['bulk'] });
+  }
+  const start = Date.now();
+  const bulkResults = manyApp.searchByTag('bulk');
+  const indexedTime = Date.now() - start;
+  assert.strictEqual(bulkResults.length, total, 'Indexed search should return all cards');
+  const naiveStart = Date.now();
+  const naiveResults = Array.from(manyApp.cards.values()).filter(c => c.tags.has('bulk'));
+  const naiveTime = Date.now() - naiveStart;
+  assert.strictEqual(naiveResults.length, total, 'Naive search should match result count');
+  assert.ok(indexedTime <= naiveTime + 20, 'Indexed search should not be significantly slower than naive scan');
+  await manyApp.updateCard(bulkResults[0].id, { tags: ['bulk', 'extra'] });
+  assert.strictEqual(manyApp.searchByTag('extra').length, 1, 'Updated tag should be indexed');
+  manyApp.removeCard(bulkResults[1].id);
+  assert.strictEqual(manyApp.searchByTag('bulk').length, total - 1, 'Removed card should be dropped from index');
+
   // create additional data to test persistence
   const third = await app.createCard({ title: 'Third', content: 'More', tags: [] });
   app.addCardToDeck(second.id, 'final');
