@@ -216,6 +216,22 @@ const MemoryApp = require('./src/app');
   dbApp2.db.close();
   fs.unlinkSync(dbFile);
 
+  // Link ID uniqueness after deletions and reload
+  const linkApp = new MemoryApp();
+  const c1 = await linkApp.createCard({ title: 'A', content: '' });
+  const c2 = await linkApp.createCard({ title: 'B', content: '' });
+  const c3 = await linkApp.createCard({ title: 'C', content: '' });
+  const firstLink = linkApp.createLink(c1.id, c2.id, 'relates');
+  linkApp.removeLink(firstLink.id);
+  const secondLink = linkApp.createLink(c2.id, c3.id, 'relates');
+  assert.strictEqual(secondLink.id, '2', 'Link IDs should increment after deletion');
+  const linkFile = 'links.json';
+  linkApp.saveToFile(linkFile);
+  const reloaded = MemoryApp.loadFromFile(linkFile);
+  fs.unlinkSync(linkFile);
+  const thirdLink = reloaded.createLink(c1.id, c3.id, 'relates');
+  assert.strictEqual(thirdLink.id, '3', 'Link ID should continue after reload');
+
   console.log('All tests passed');
 })().catch(err => {
   console.error(err);

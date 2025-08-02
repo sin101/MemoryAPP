@@ -13,6 +13,7 @@ class MemoryApp extends EventEmitter {
     this.decks = new Map();
     this.links = new Map();
     this.nextId = 1;
+    this.nextLinkId = 1;
     this.aiEnabled = true;
     this.webSuggestionsEnabled = true;
     this.backgroundProcessing = !!options.backgroundProcessing;
@@ -386,7 +387,7 @@ class MemoryApp extends EventEmitter {
     if (!from || !to) {
       throw new Error('Both cards must exist to create a link');
     }
-    const id = String(this.links.size + 1);
+    const id = String(this.nextLinkId++);
     const link = new Link({ id, from: fromId, to: toId, type });
     this.links.set(id, link);
     this.emit('linkCreated', link);
@@ -553,6 +554,10 @@ class MemoryApp extends EventEmitter {
       if (app.cards.has(linkData.from) && app.cards.has(linkData.to)) {
         const link = new Link(linkData);
         app.links.set(link.id, link);
+        const num = Number(link.id);
+        if (!Number.isNaN(num) && num >= app.nextLinkId) {
+          app.nextLinkId = num + 1;
+        }
       }
     }
     return app;
