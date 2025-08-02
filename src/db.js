@@ -1,22 +1,19 @@
-const { spawnSync } = require('child_process');
-const fs = require('fs');
-
-function runSql(dbPath, sql, opts = []) {
-  const result = spawnSync('sqlite3', [...opts, dbPath], { input: sql });
-  if (result.status !== 0) {
-    throw new Error(result.stderr.toString());
-  }
-  return result.stdout.toString();
-}
-
-function esc(value) {
-  return String(value).replace(/'/g, "''");
-}
+const Database = require('better-sqlite3');
 
 class MemoryDB {
   constructor(path) {
     this.path = path;
+    this.db = new Database(this.path);
     this.init();
+    this.saveStmt = this.db.prepare(`INSERT OR REPLACE INTO cards (
+      id, title, content, source, tags, decks, type, description,
+      createdAt, summary, illustration
+    ) VALUES (
+      @id, @title, @content, @source, @tags, @decks, @type, @description,
+      @createdAt, @summary, @illustration
+    )`);
+    this.deleteStmt = this.db.prepare('DELETE FROM cards WHERE id = ?');
+    this.loadStmt = this.db.prepare('SELECT * FROM cards');
   }
 
   init() {
@@ -32,25 +29,33 @@ class MemoryDB {
       createdAt TEXT,
       summary TEXT,
       illustration TEXT
-    );`;
-    runSql(this.path, sql);
+    )`;
+    this.db.exec(sql);
   }
 
   saveCard(card) {
-    const sql = `INSERT OR REPLACE INTO cards (id,title,content,source,tags,decks,type,description,createdAt,summary,illustration) VALUES ('${esc(card.id)}','${esc(card.title)}','${esc(card.content)}','${esc(card.source)}','${esc(JSON.stringify(Array.from(card.tags)))}','${esc(JSON.stringify(Array.from(card.decks)))}','${esc(card.type)}','${esc(card.description)}','${esc(card.createdAt)}','${esc(card.summary || '')}','${esc(card.illustration || '')}');`;
-    runSql(this.path, sql);
+    this.saveStmt.run({
+      id: card.id,
+      title: card.title,
+      content: card.content,
+      source: card.source,
+      tags: JSON.stringify(Array.from(card.tags)),
+      decks: JSON.stringify(Array.from(card.decks)),
+      type: card.type,
+      description: card.description,
+      createdAt: card.createdAt,
+      summary: card.summary || '',
+      illustration: card.illustration || ''
+    });
   }
 
   deleteCard(id) {
-    const sql = `DELETE FROM cards WHERE id='${esc(id)}';`;
-    runSql(this.path, sql);
+    this.deleteStmt.run(id);
   }
 
   loadCards() {
-    const sql = `SELECT * FROM cards;`;
-    const out = runSql(this.path, sql, ['-json']);
-    if (!out) return [];
-    return JSON.parse(out).map(r => ({
+    const rows = this.loadStmt.all();
+    return rows.map(r => ({
       id: r.id,
       title: r.title,
       content: r.content,
@@ -66,9 +71,7 @@ class MemoryDB {
   }
 
   close() {
-    try {
-      fs.unlinkSync(this.path + '-journal');
-    } catch {}
+    this.db.close();
   }
 }
 
