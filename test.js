@@ -180,6 +180,20 @@ const MemoryApp = require('./src/app');
   assert.strictEqual(processedCard.id, eventCard.id, 'cardProcessed should emit after processing');
   assert.ok(processedCard.summary, 'Summary should be generated in background');
 
+  // Background processing with DB persistence
+  const bgDbFile = 'bgcards.db';
+  const bgApp1 = new MemoryApp({ dbPath: bgDbFile, backgroundProcessing: true });
+  const bgProcessedPromise = new Promise(res => bgApp1.once('cardProcessed', res));
+  const bgCard = await bgApp1.createCard({ title: 'BG DB', content: 'stored later' });
+  await bgProcessedPromise;
+  bgApp1.db.close();
+  const bgApp2 = new MemoryApp({ dbPath: bgDbFile });
+  const loadedBgCard = bgApp2.cards.get(bgCard.id);
+  assert.ok(loadedBgCard.summary, 'Summary should persist after background processing');
+  assert.ok(loadedBgCard.illustration, 'Illustration should persist after background processing');
+  bgApp2.db.close();
+  fs.unlinkSync(bgDbFile);
+
   // Database persistence
   const dbFile = 'cards.db';
   const dbApp1 = new MemoryApp({ dbPath: dbFile });

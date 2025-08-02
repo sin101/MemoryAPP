@@ -45,7 +45,18 @@ class MemoryApp extends EventEmitter {
       this.enrichCard(card.id);
       if (this.backgroundProcessing) {
         this.processCard(card)
-          .then(() => this.emit('cardProcessed', card))
+          .then(() => {
+            if (this.db) {
+              try {
+                this.db.saveCard(card);
+                this.emit('cardProcessed', card);
+              } catch (e) {
+                this.emit('error', e);
+              }
+            } else {
+              this.emit('cardProcessed', card);
+            }
+          })
           .catch(err => this.emit('error', err));
       } else {
         await this.processCard(card);
@@ -128,7 +139,18 @@ class MemoryApp extends EventEmitter {
       this.enrichCard(cardId);
       if (this.backgroundProcessing) {
         this.processCard(card)
-          .then(() => this.emit('cardProcessed', card))
+          .then(() => {
+            if (this.db) {
+              try {
+                this.db.saveCard(card);
+                this.emit('cardProcessed', card);
+              } catch (e) {
+                this.emit('error', e);
+              }
+            } else {
+              this.emit('cardProcessed', card);
+            }
+          })
           .catch(err => this.emit('error', err));
       } else {
         await this.processCard(card);
