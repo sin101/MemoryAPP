@@ -15,9 +15,17 @@ const sampleCards = [
 
 const cardsContainer = document.getElementById('cards');
 const searchInput = document.getElementById('search');
+const themeToggle = document.getElementById('theme-toggle');
 
 function renderCards(cards = sampleCards) {
   cardsContainer.innerHTML = '';
+  if (!cards.length) {
+    const msg = document.createElement('p');
+    msg.id = 'no-results';
+    msg.textContent = 'No cards found';
+    cardsContainer.appendChild(msg);
+    return;
+  }
   for (const card of cards) {
     const el = document.createElement('div');
     el.className = 'card';
@@ -28,6 +36,16 @@ function renderCards(cards = sampleCards) {
         .map(t => `<span class="tag" data-tag="${t}">${t}</span>`)
         .join('')}</div>`;
     el.addEventListener('click', () => showCardSuggestions(card, el));
+    el.querySelectorAll('.tag').forEach(tagEl => {
+      tagEl.addEventListener('click', e => {
+        e.stopPropagation();
+        const tag = tagEl.dataset.tag;
+        searchInput.value = tag;
+        filterCards(tag);
+        const list = document.getElementById('suggestion-list');
+        list.innerHTML = '';
+      });
+    });
     cardsContainer.appendChild(el);
   }
 }
@@ -86,6 +104,20 @@ searchInput.addEventListener('input', e => {
   if (!e.target.value) {
     showThemeSuggestions();
   }
+});
+
+function setTheme(mode) {
+  document.body.classList.toggle('dark', mode === 'dark');
+  themeToggle.textContent = mode === 'dark' ? '☀️' : '🌙';
+  localStorage.setItem('theme', mode);
+}
+
+const savedTheme = localStorage.getItem('theme') || 'light';
+setTheme(savedTheme);
+
+themeToggle.addEventListener('click', () => {
+  const newTheme = document.body.classList.contains('dark') ? 'light' : 'dark';
+  setTheme(newTheme);
 });
 
 renderCards();
