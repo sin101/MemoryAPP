@@ -168,6 +168,39 @@ const MemoryApp = require('./src/app');
   assert.ok(fetchCalls >= 6, 'Should attempt multiple sources for suggestions');
   global.fetch = originalFetch;
 
+  // Concurrency in suggestions
+  const concApp = new MemoryApp();
+  await concApp.createCard({ title: 'Tags', content: '', tags: ['a', 'b', 'c'] });
+  let concurrent = 0;
+  let maxConcurrent = 0;
+  concApp.fetchSuggestion = async tag => {
+    concurrent += 1;
+    if (concurrent > maxConcurrent) {
+      maxConcurrent = concurrent;
+    }
+    await new Promise(res => setTimeout(res, 10));
+    concurrent -= 1;
+    return { tag, title: tag };
+  };
+  const concCardId = Array.from(concApp.cards.keys())[0];
+  await concApp.getCardSuggestions(concCardId, 1);
+  assert.strictEqual(maxConcurrent, 3, 'Card suggestions should fetch tags concurrently');
+
+  concurrent = 0;
+  maxConcurrent = 0;
+  concApp.fetchSuggestion = async tag => {
+    concurrent += 1;
+    if (concurrent > maxConcurrent) {
+      maxConcurrent = concurrent;
+    }
+    await new Promise(res => setTimeout(res, 10));
+    concurrent -= 1;
+    return { tag, title: tag };
+  };
+  await concApp.createCard({ title: 'More', content: '', tags: ['d', 'e'] });
+  await concApp.getThemeSuggestions(1);
+  assert.strictEqual(maxConcurrent, 5, 'Theme suggestions should fetch tags concurrently');
+
   // Event-driven background processing
   const eventApp = new MemoryApp({ backgroundProcessing: true });
   const createdPromise = new Promise(res => eventApp.once('cardCreated', res));
