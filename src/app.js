@@ -2,15 +2,20 @@ const Card = require('./card');
 const Deck = require('./deck');
 const Link = require('./link');
 const fs = require('fs');
+const MemoryDB = require('./db');
 
 class MemoryApp {
-  constructor() {
+  constructor(options = {}) {
     this.cards = new Map();
     this.decks = new Map();
     this.links = new Map();
     this.nextId = 1;
     this.aiEnabled = true;
     this.webSuggestionsEnabled = true;
+    this.db = options.dbPath ? new MemoryDB(options.dbPath) : null;
+    if (this.db) {
+      this.loadFromDB();
+    }
   }
 
   createCard(data) {
@@ -26,6 +31,10 @@ class MemoryApp {
     this.cards.set(card.id, card);
     if (this.aiEnabled) {
       this.enrichCard(card.id);
+      this.processCard(card);
+    }
+    if (this.db) {
+      this.db.saveCard(card);
     }
     return card;
   }
@@ -74,6 +83,9 @@ class MemoryApp {
     }
     const deck = this.getDeck(deckName);
     deck.addCard(card);
+    if (this.db) {
+      this.db.saveCard(card);
+    }
   }
 
   updateCard(cardId, data) {
@@ -84,6 +96,10 @@ class MemoryApp {
     card.update(data);
     if (this.aiEnabled) {
       this.enrichCard(cardId);
+      this.processCard(card);
+    }
+    if (this.db) {
+      this.db.saveCard(card);
     }
     return card;
   }
@@ -174,6 +190,9 @@ class MemoryApp {
       }
     }
     this.cards.delete(cardId);
+    if (this.db) {
+      this.db.deleteCard(cardId);
+    }
     return true;
   }
 
@@ -273,6 +292,23 @@ class MemoryApp {
     return { nodes, edges };
   }
 
+  processCard(card) {
+    if (!card.summary && card.content) {
+      card.summary = this.summarize(card.content);
+    }
+    if (!card.illustration) {
+      card.illustration = this.generateIllustration(card.title);
+    }
+  }
+
+  summarize(text) {
+    return text.split(/\s+/).slice(0, 20).join(' ');
+  }
+
+  generateIllustration(title) {
+    return `illustration-${title.toLowerCase().replace(/[^a-z0-9]+/g, '_')}.png`;
+  }
+
   toJSON() {
     return {
       cards: Array.from(this.cards.values()).map(card => ({
@@ -284,6 +320,8 @@ class MemoryApp {
         type: card.type,
         description: card.description,
         createdAt: card.createdAt,
+        summary: card.summary,
+        illustration: card.illustration,
       })),
       decks: Array.from(this.decks.values()).map(deck => ({
         name: deck.name,
@@ -304,8 +342,14 @@ class MemoryApp {
 
   static fromJSON(data) {
     const app = new MemoryApp();
+    app.aiEnabled = false;
     for (const cardData of data.cards || []) {
-      app.createCard(cardData);
+      const card = new Card(cardData);
+      app.cards.set(card.id, card);
+      const num = Number(card.id);
+      if (!Number.isNaN(num) && num >= app.nextId) {
+        app.nextId = num + 1;
+      }
     }
     for (const deckData of data.decks || []) {
       const deck = app.getDeck(deckData.name);
@@ -329,6 +373,22 @@ class MemoryApp {
   static loadFromFile(path) {
     const data = JSON.parse(fs.readFileSync(path, 'utf8'));
     return MemoryApp.fromJSON(data);
+  }
+
+  loadFromDB() {
+    const stored = this.db.loadCards();
+    for (const data of stored) {
+      const card = new Card(data);
+      this.cards.set(card.id, card);
+      const num = Number(card.id);
+      if (!Number.isNaN(num) && num >= this.nextId) {
+        this.nextId = num + 1;
+      }
+      for (const deckName of card.decks) {
+        const deck = this.getDeck(deckName);
+        deck.cards.add(card.id);
+      }
+    }
   }
 }
 

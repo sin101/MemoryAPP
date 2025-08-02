@@ -11,6 +11,9 @@ const MemoryApp = require('./src/app');
     tags: ['intro']
   });
 
+  assert.ok(card.summary, 'Card should have a summary');
+  assert.ok(card.illustration, 'Card should have an illustration');
+
   app.addCardToDeck(card.id, 'general');
 
   assert.strictEqual(app.cards.size, 1, 'Card count should be 1');
@@ -111,6 +114,17 @@ const MemoryApp = require('./src/app');
   suggestApp.setWebSuggestionsEnabled(false);
   const noSuggestions = await suggestApp.getWebSuggestions();
   assert.strictEqual(noSuggestions.length, 0, 'No suggestions when disabled');
+
+  // Database persistence
+  const dbFile = 'cards.db';
+  const dbApp1 = new MemoryApp({ dbPath: dbFile });
+  const dbCard = dbApp1.createCard({ title: 'DB', content: 'Stored in sqlite' });
+  dbApp1.db.close();
+  const dbApp2 = new MemoryApp({ dbPath: dbFile });
+  assert.ok(dbApp2.cards.has(dbCard.id), 'DB app should load existing card');
+  assert.strictEqual(dbApp2.cards.get(dbCard.id).summary, dbCard.summary, 'Summary should persist in DB');
+  dbApp2.db.close();
+  fs.unlinkSync(dbFile);
 
   console.log('All tests passed');
 })().catch(err => {

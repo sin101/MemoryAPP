@@ -30,7 +30,7 @@ Organization in cards (see UI section)
 - Option to disable all AI for a 100% offline mode
 - Semantic search (tolerant to vague or approximate queries)
 - Local chatbot/assistant for fuzzy content retrieval
-- Prototype implements enrichment with a lightweight heuristic that extracts keywords and a short description from card content when AI features are enabled.
+ - Prototype implements enrichment with a lightweight heuristic that extracts keywords and a short description from card content when AI features are enabled. The same routine generates a brief summary and a placeholder illustration filename.
 
 ### 3.3 Decks & Navigation
 - Thematic groups of cards, created manually or automatically based on tags
@@ -91,6 +91,7 @@ Organization in cards (see UI section)
 - Local database: SQLite (via WASM) or IndexedDB
 - File storage: local structured folder, auto-organized
 - Fast indexing for instant search and graph
+ - Prototype ships with a minimal SQLite-backed store that persists cards to disk and reloads them at startup
 
 ### 5.3 Artificial Intelligence
 - Local open-source models:
