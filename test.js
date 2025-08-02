@@ -1,6 +1,7 @@
 const assert = require('assert');
 const fs = require('fs');
 const MemoryApp = require('./src/app');
+const { fetchSuggestion } = require('./src/suggestions');
 
 (async () => {
   const app = new MemoryApp();
@@ -170,6 +171,8 @@ const MemoryApp = require('./src/app');
   assert.strictEqual(cardSuggestions.length, 1, 'Card suggestion should return one result');
   const themeSuggestions = await suggestApp.getThemeSuggestions(1);
   assert.strictEqual(themeSuggestions.length, 1, 'Theme suggestion should return one result');
+  const directSuggestion = await fetchSuggestion('demo');
+  assert.ok(directSuggestion, 'Direct suggestion should return a result');
   suggestApp.setWebSuggestionsEnabled(false);
   const noSuggestions = await suggestApp.getWebSuggestions();
   assert.strictEqual(noSuggestions.length, 0, 'No suggestions when disabled');
