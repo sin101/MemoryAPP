@@ -141,16 +141,19 @@ const MemoryApp = require('./src/app');
   const suggestApp = new MemoryApp();
   await suggestApp.createCard({ title: 'JS', content: '', tags: ['JavaScript', 'code'] });
   const originalFetch = global.fetch;
-  global.fetch = async () => ({
-    ok: true,
-    async json() {
-      return {
-        title: 'Stub',
-        extract: 'stub description',
-        content_urls: { desktop: { page: 'https://example.com' } },
-      };
-    }
-  });
+  let fetchCalls = 0;
+  global.fetch = async () => {
+    fetchCalls += 1;
+    return {
+      ok: true,
+      async json() {
+        return { data: { children: [] } }; // forces fallback
+      },
+      async text() {
+        return '<rss><channel><item><title>Stub</title><link>https://example.com</link></item></channel></rss>';
+      },
+    };
+  };
   const suggestions = await suggestApp.getWebSuggestions(1);
   assert.strictEqual(suggestions.length, 1, 'Should return one suggestion');
   assert.strictEqual(suggestions[0].title, 'Stub', 'Suggestion should use stub');
@@ -162,6 +165,7 @@ const MemoryApp = require('./src/app');
   suggestApp.setWebSuggestionsEnabled(false);
   const noSuggestions = await suggestApp.getWebSuggestions();
   assert.strictEqual(noSuggestions.length, 0, 'No suggestions when disabled');
+  assert.ok(fetchCalls >= 6, 'Should attempt multiple sources for suggestions');
   global.fetch = originalFetch;
 
   // Event-driven background processing

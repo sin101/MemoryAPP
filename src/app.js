@@ -169,32 +169,136 @@ class MemoryApp extends EventEmitter {
     return results;
   }
 
-  async fetchSuggestion(tag) {
-    let suggestion;
+  async fetchFromWikipedia(tag) {
     try {
       const url = `https://en.wikipedia.org/api/rest_v1/page/summary/${encodeURIComponent(tag)}`;
       const res = await fetch(url, { headers: { Accept: 'application/json' } });
       if (res.ok) {
         const data = await res.json();
-        suggestion = {
+        return {
           tag,
           title: data.title,
           description: data.extract,
           url: (data.content_urls && data.content_urls.desktop && data.content_urls.desktop.page) || `https://en.wikipedia.org/wiki/${encodeURIComponent(tag)}`,
+          source: 'wikipedia',
         };
       }
     } catch (e) {
-      // ignore network errors and fall back to placeholder
+      // ignore network errors
     }
-    if (!suggestion) {
-      suggestion = {
-        tag,
-        title: tag,
-        description: '',
-        url: `https://en.wikipedia.org/wiki/${encodeURIComponent(tag)}`,
-      };
+    return null;
+  }
+
+  async fetchFromReddit(tag) {
+    try {
+      const url = `https://www.reddit.com/search.json?q=${encodeURIComponent(tag)}&limit=1`;
+      const res = await fetch(url, { headers: { 'User-Agent': 'MemoryApp/1.0' } });
+      if (res.ok) {
+        const data = await res.json();
+        const item = data && data.data && data.data.children && data.data.children[0] && data.data.children[0].data;
+        if (item) {
+          return {
+            tag,
+            title: item.title,
+            description: item.selftext || '',
+            url: `https://www.reddit.com${item.permalink}`,
+            source: 'reddit',
+          };
+        }
+      }
+    } catch (e) {
+      // ignore
     }
-    return suggestion;
+    return null;
+  }
+
+  async fetchFromRSS(tag) {
+    try {
+      const url = `https://news.google.com/rss/search?q=${encodeURIComponent(tag)}`;
+      const res = await fetch(url);
+      if (res.ok) {
+        const text = await res.text();
+        const match = text.match(/<item>\s*<title>([^<]+)<\/title>\s*<link>([^<]+)<\/link>/i);
+        if (match) {
+          return {
+            tag,
+            title: match[1],
+            description: '',
+            url: match[2],
+            source: 'rss',
+          };
+        }
+      }
+    } catch (e) {
+      // ignore
+    }
+    return null;
+  }
+
+  async fetchFromYouTube(tag) {
+    try {
+      const apiKey = process.env.YOUTUBE_API_KEY;
+      const url = `https://www.googleapis.com/youtube/v3/search?part=snippet&type=video&maxResults=1&q=${encodeURIComponent(tag)}${apiKey ? `&key=${apiKey}` : ''}`;
+      const res = await fetch(url);
+      if (res.ok) {
+        const data = await res.json();
+        const item = data && data.items && data.items[0];
+        if (item) {
+          return {
+            tag,
+            title: item.snippet.title,
+            description: item.snippet.description,
+            url: `https://www.youtube.com/watch?v=${item.id.videoId}`,
+            source: 'youtube',
+          };
+        }
+      }
+    } catch (e) {
+      // ignore
+    }
+    return null;
+  }
+
+  async fetchFromArXiv(tag) {
+    try {
+      const url = `http://export.arxiv.org/api/query?search_query=all:${encodeURIComponent(tag)}&start=0&max_results=1`;
+      const res = await fetch(url, { headers: { Accept: 'application/atom+xml' } });
+      if (res.ok) {
+        const text = await res.text();
+        const match = text.match(/<entry>.*?<title>([^<]+)<\/title>.*?<id>([^<]+)<\/id>/s);
+        if (match) {
+          return {
+            tag,
+            title: match[1].trim(),
+            description: '',
+            url: match[2].trim(),
+            source: 'arxiv',
+          };
+        }
+      }
+    } catch (e) {
+      // ignore
+    }
+    return null;
+  }
+
+  async fetchSuggestion(tag, type = 'text') {
+    const strategies = [];
+    if (type === 'video') {
+      strategies.push(this.fetchFromYouTube);
+    } else if (type === 'academic') {
+      strategies.push(this.fetchFromArXiv);
+    }
+    strategies.push(this.fetchFromReddit);
+    strategies.push(this.fetchFromRSS);
+    strategies.push(this.fetchFromWikipedia);
+    for (const fn of strategies) {
+      const suggestion = await fn.call(this, tag);
+      if (suggestion) {
+        return suggestion;
+      }
+    }
+    return { tag, title: tag, description: '', url: '', source: 'none' };
   }
 
   async getCardSuggestions(cardId, limit = 3) {
@@ -210,7 +314,7 @@ class MemoryApp extends EventEmitter {
       if (results.length >= limit) {
         break;
       }
-      results.push(await this.fetchSuggestion(tag));
+      results.push(await this.fetchSuggestion(tag, card.type));
     }
     return results;
   }

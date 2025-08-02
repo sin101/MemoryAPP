@@ -44,11 +44,11 @@ Organization in cards (see UI section)
 
 ### 3.4 Web Content Suggestions
 - Regularly analyzes used tags and themes
-- Searches the web (Google API, Wikipedia, YouTube, etc.) based on tags to find related content
+- Searches public sources such as RSS feeds and Reddit based on tags to find related content; YouTube may be used for video cards and ArXiv for academic or research material
 - Presents suggestions as "proposed" cards in a dedicated "Suggestions/Explore" section
 - Actions: add, edit, ignore, view source
 - Option to disable web suggestions (for offline or privacy-focused usage)
-- The prototype implements this feature with a simple helper that queries the Wikipedia API using existing card tags to propose related articles. Fetching suggestions can be disabled.
+- The prototype implements this feature with a helper that queries these services using existing card tags to propose related items. Fetching suggestions can be disabled.
 - Suggestions may be requested for an individual card using its tags, or globally by looking at the most common tags to surface theme-based recommendations.
 
 ### 3.5 Graph View Visualization
