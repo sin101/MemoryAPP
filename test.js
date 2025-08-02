@@ -131,6 +131,18 @@ const MemoryApp = require('./src/app');
   const noSuggestions = await suggestApp.getWebSuggestions();
   assert.strictEqual(noSuggestions.length, 0, 'No suggestions when disabled');
 
+  // Event-driven background processing
+  const eventApp = new MemoryApp({ backgroundProcessing: true });
+  const createdPromise = new Promise(res => eventApp.once('cardCreated', res));
+  const processedPromise = new Promise(res => eventApp.once('cardProcessed', res));
+  const eventCard = await eventApp.createCard({ title: 'Async', content: 'background task' });
+  const createdCard = await createdPromise;
+  assert.strictEqual(createdCard.id, eventCard.id, 'cardCreated should emit with card');
+  assert.ok(!eventCard.summary, 'Summary should not be ready immediately when processing in background');
+  const processedCard = await processedPromise;
+  assert.strictEqual(processedCard.id, eventCard.id, 'cardProcessed should emit after processing');
+  assert.ok(processedCard.summary, 'Summary should be generated in background');
+
   // Database persistence
   const dbFile = 'cards.db';
   const dbApp1 = new MemoryApp({ dbPath: dbFile });

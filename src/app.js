@@ -4,15 +4,18 @@ const Link = require('./link');
 const fs = require('fs');
 const MemoryDB = require('./db');
 const { SimpleAI, HuggingFaceAI } = require('./ai');
+const EventEmitter = require('events');
 
-class MemoryApp {
+class MemoryApp extends EventEmitter {
   constructor(options = {}) {
+    super();
     this.cards = new Map();
     this.decks = new Map();
     this.links = new Map();
     this.nextId = 1;
     this.aiEnabled = true;
     this.webSuggestionsEnabled = true;
+    this.backgroundProcessing = !!options.backgroundProcessing;
     if (options.ai) {
       this.ai = options.ai;
     } else if (process.env.HUGGINGFACE_API_KEY) {
@@ -37,12 +40,24 @@ class MemoryApp {
     }
     const card = new Card(data);
     this.cards.set(card.id, card);
+    this.emit('cardCreated', card);
     if (this.aiEnabled) {
       this.enrichCard(card.id);
-      await this.processCard(card);
+      if (this.backgroundProcessing) {
+        this.processCard(card)
+          .then(() => this.emit('cardProcessed', card))
+          .catch(err => this.emit('error', err));
+      } else {
+        await this.processCard(card);
+        this.emit('cardProcessed', card);
+      }
     }
     if (this.db) {
-      this.db.saveCard(card);
+      try {
+        this.db.saveCard(card);
+      } catch (e) {
+        this.emit('error', e);
+      }
     }
     return card;
   }
@@ -91,8 +106,13 @@ class MemoryApp {
     }
     const deck = this.getDeck(deckName);
     deck.addCard(card);
+    this.emit('deckUpdated', deck);
     if (this.db) {
-      this.db.saveCard(card);
+      try {
+        this.db.saveCard(card);
+      } catch (e) {
+        this.emit('error', e);
+      }
     }
   }
 
@@ -102,12 +122,24 @@ class MemoryApp {
       return null;
     }
     card.update(data);
+    this.emit('cardUpdated', card);
     if (this.aiEnabled) {
       this.enrichCard(cardId);
-      await this.processCard(card);
+      if (this.backgroundProcessing) {
+        this.processCard(card)
+          .then(() => this.emit('cardProcessed', card))
+          .catch(err => this.emit('error', err));
+      } else {
+        await this.processCard(card);
+        this.emit('cardProcessed', card);
+      }
     }
     if (this.db) {
-      this.db.saveCard(card);
+      try {
+        this.db.saveCard(card);
+      } catch (e) {
+        this.emit('error', e);
+      }
     }
     return card;
   }
@@ -195,11 +227,17 @@ class MemoryApp {
     for (const [id, link] of this.links) {
       if (link.from === cardId || link.to === cardId) {
         this.links.delete(id);
+        this.emit('linkRemoved', link);
       }
     }
     this.cards.delete(cardId);
+    this.emit('cardRemoved', card);
     if (this.db) {
-      this.db.deleteCard(cardId);
+      try {
+        this.db.deleteCard(cardId);
+      } catch (e) {
+        this.emit('error', e);
+      }
     }
     return true;
   }
@@ -216,6 +254,7 @@ class MemoryApp {
       }
     }
     this.decks.delete(deckName);
+    this.emit('deckRemoved', deckName);
     return true;
   }
 
@@ -228,6 +267,7 @@ class MemoryApp {
     const id = String(this.links.size + 1);
     const link = new Link({ id, from: fromId, to: toId, type });
     this.links.set(id, link);
+    this.emit('linkCreated', link);
     return link;
   }
 
@@ -242,7 +282,12 @@ class MemoryApp {
   }
 
   removeLink(linkId) {
-    return this.links.delete(linkId);
+    const link = this.links.get(linkId);
+    const res = this.links.delete(linkId);
+    if (res && link) {
+      this.emit('linkRemoved', link);
+    }
+    return res;
   }
 
   getGraph(options = {}) {
@@ -301,11 +346,15 @@ class MemoryApp {
   }
 
   async processCard(card) {
+    const tasks = [];
     if (!card.summary && card.content) {
-      card.summary = await this.summarize(card.content);
+      tasks.push(this.summarize(card.content).then(s => { card.summary = s; }));
     }
     if (!card.illustration) {
-      card.illustration = await this.generateIllustration(card.title);
+      tasks.push(this.generateIllustration(card.title).then(i => { card.illustration = i; }));
+    }
+    if (tasks.length > 0) {
+      await Promise.all(tasks);
     }
   }
 

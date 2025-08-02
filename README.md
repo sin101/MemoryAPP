@@ -9,6 +9,8 @@ The graph helper can filter by deck, tag, or link type and includes each card's 
 
 Cards now receive simple input processing: when AI features are enabled the content is summarized and a placeholder illustration filename is generated. The AI layer is pluggable, allowing integration with external language or image models to supply custom summaries and illustrations, and a lightweight chatbot can answer natural-language queries to help locate cards. A tiny SQLite-backed store can also persist cards to disk and reload them on startup.
 
+An event system makes the prototype dynamic and responsive. `MemoryApp` emits `cardCreated`, `cardUpdated`, `cardRemoved`, `deckRemoved`, and `cardProcessed` events so external interfaces can react to changes. For even snappier interactions, construct the app with `{ backgroundProcessing: true }` to defer AI work; creation and updates will return immediately and a `cardProcessed` event will fire once summarization and illustration generation finish.
+
 When a `HUGGINGFACE_API_KEY` environment variable is present, the app will query the Hugging Face Hub to pick popular models for summarization, chat, and image generation. These selections are cached at runtime and used for rich summaries, chatbot answers, and illustrative images. Without the key, a simple heuristic AI remains available for offline use.
 
 The prototype also experiments with web suggestions: when enabled, the app will gather card tags and query the Wikipedia API to propose related content. Suggestions can be turned off for privacy or offline use.

@@ -31,6 +31,7 @@ Organization in cards (see UI section)
 - Semantic search (tolerant to vague or approximate queries)
 - Local chatbot/assistant for fuzzy content retrieval
  - Prototype implements enrichment with a pluggable AI helper. By default it uses a lightweight heuristic to extract keywords and a short description from card content. When a `HUGGINGFACE_API_KEY` is provided, the helper queries the Hugging Face Hub to select popular models for summarization, chat replies, and image generation, then uses the Hugging Face inference API to produce results. A basic chatbot uses this layer to answer natural-language queries and surface matching cards.
+ - The library is event driven, emitting notifications for card, deck, and link changes. AI enrichment can run in the background and will emit a `cardProcessed` event once summaries and illustrations are available, keeping the interface responsive while long-running model calls complete.
 
 ### 3.3 Decks & Navigation
 - Thematic groups of cards, created manually or automatically based on tags
