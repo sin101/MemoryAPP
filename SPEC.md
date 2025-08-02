@@ -54,7 +54,7 @@ Organization in cards (see UI section)
 - Displays relationships and multi-deck membership
 - Filter by deck, tag, or link type
 - Responsive view, zoom/pan, fluid navigation
-- Backend exposes a `getGraph(deckName?)` method returning nodes and edges for use in visualizations
+- Backend exposes a `getGraph` helper returning nodes and edges for use in visualizations. The method accepts optional filters for deck, tag, and link type, and each node includes the list of decks it belongs to
 
 ## 4. UI/UX Specifications
 ### 4.1 Card Design

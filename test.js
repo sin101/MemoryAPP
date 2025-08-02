@@ -87,11 +87,20 @@ const MemoryApp = require('./src/app');
   assert.ok(loaded.decks.has('final'), 'Loaded app should have the deck');
   assert.strictEqual(loaded.getLinks(second.id)[0].to, third.id, 'Loaded link should be preserved');
 
-  const graph = loaded.getGraph('final');
+  const graph = loaded.getGraph({ deck: 'final' });
   assert.strictEqual(graph.nodes.length, 2, 'Graph should include two nodes');
   assert.strictEqual(graph.edges.length, 1, 'Graph should include one edge');
   assert.strictEqual(graph.edges[0].from, second.id, 'Edge should start from second card');
   assert.strictEqual(graph.edges[0].to, third.id, 'Edge should point to third card');
+
+  const tagFiltered = loaded.getGraph({ deck: 'final', tag: 'edited' });
+  assert.strictEqual(tagFiltered.nodes.length, 1, 'Tag filter should reduce nodes');
+  assert.strictEqual(tagFiltered.nodes[0].id, second.id, 'Filtered node should be second card');
+  assert.ok(tagFiltered.nodes[0].decks.includes('final'), 'Node should list deck membership');
+  assert.strictEqual(tagFiltered.edges.length, 0, 'Edge should be dropped when referenced card missing');
+
+  const typeFiltered = loaded.getGraph({ deck: 'final', linkType: 'related' });
+  assert.strictEqual(typeFiltered.edges.length, 1, 'Link type filter should keep matching edges');
 
   // Web suggestions
   const suggestApp = new MemoryApp();

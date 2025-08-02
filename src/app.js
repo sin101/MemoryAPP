@@ -218,7 +218,18 @@ class MemoryApp {
     return this.links.delete(linkId);
   }
 
-  getGraph(deckName = null) {
+  getGraph(options = {}) {
+    let deckName = null;
+    let tagFilter = null;
+    let linkTypeFilter = null;
+    if (typeof options === 'string') {
+      deckName = options;
+    } else {
+      deckName = options.deck || null;
+      tagFilter = options.tag || null;
+      linkTypeFilter = options.linkType || null;
+    }
+
     let cardIds;
     if (deckName) {
       const deck = this.decks.get(deckName);
@@ -233,14 +244,28 @@ class MemoryApp {
     const nodes = [];
     for (const id of cardIds) {
       const card = this.cards.get(id);
-      if (card) {
-        nodes.push({ id: card.id, title: card.title, tags: Array.from(card.tags) });
+      if (!card) {
+        continue;
       }
+      if (tagFilter && !card.tags.has(tagFilter)) {
+        continue;
+      }
+      nodes.push({
+        id: card.id,
+        title: card.title,
+        tags: Array.from(card.tags),
+        decks: Array.from(card.decks),
+      });
     }
+
+    const includedIds = new Set(nodes.map(n => n.id));
 
     const edges = [];
     for (const link of this.links.values()) {
-      if (cardIds.has(link.from) && cardIds.has(link.to)) {
+      if (linkTypeFilter && link.type !== linkTypeFilter) {
+        continue;
+      }
+      if (includedIds.has(link.from) && includedIds.has(link.to)) {
         edges.push({ id: link.id, from: link.from, to: link.to, type: link.type });
       }
     }
