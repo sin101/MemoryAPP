@@ -111,6 +111,7 @@ const { fetchSuggestion } = require('./src/suggestions');
   });
   assert.ok(aiCard.tags.size > 0, 'AI should add tags');
   assert.ok(aiCard.description, 'AI should add description');
+  assert.strictEqual(aiApp.searchByText('graph')[0].id, aiCard.id, 'Search should include AI-generated description');
   aiApp.setAIEnabled(false);
   const plainCard = await aiApp.createCard({ title: 'Plain', content: 'Just text' });
   assert.strictEqual(plainCard.tags.size, 0, 'No tags when AI disabled');

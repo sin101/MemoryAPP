@@ -23,6 +23,7 @@ class Card {
     this.createdAt = createdAt;
     this.summary = summary;
     this.illustration = illustration;
+    this._updateSearchText();
   }
 
   addTag(tag) {
@@ -62,6 +63,14 @@ class Card {
     if (illustration !== undefined) {
       this.illustration = illustration;
     }
+    this._updateSearchText();
+  }
+
+  _updateSearchText() {
+    const parts = [this.title, this.content, this.description]
+      .filter(Boolean)
+      .map(s => s.toLowerCase());
+    this.searchText = parts.join(' ');
   }
 }
 
