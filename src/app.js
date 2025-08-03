@@ -529,7 +529,7 @@ class MemoryApp extends EventEmitter {
   static fromJSON(data) {
     const app = new MemoryApp();
     app.aiEnabled = false;
-      for (const cardData of data.cards || []) {
+    for (const cardData of data.cards || []) {
       if (cardData.tags) {
         cardData.tags = cardData.tags.map(t => t.toLowerCase());
       }
