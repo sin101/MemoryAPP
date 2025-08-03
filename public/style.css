@@ -34,6 +34,26 @@ header {
   gap: 0.5rem;
 }
 
+#add-card {
+  margin-bottom: 1rem;
+}
+
+#add-card-form {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+}
+
+#add-card-form input {
+  padding: 0.5rem;
+  flex: 1;
+  min-width: 120px;
+}
+
+#add-card-form button {
+  padding: 0.5rem 1rem;
+}
+
 .controls {
   display: flex;
   align-items: center;
@@ -53,6 +73,17 @@ header {
   font-size: 1rem;
   flex: 1;
   max-width: 300px;
+}
+
+#api-key {
+  padding: 0.5rem;
+  font-size: 1rem;
+  max-width: 200px;
+}
+
+.controls select {
+  padding: 0.5rem;
+  font-size: 1rem;
 }
 
 .layout {
@@ -81,6 +112,17 @@ header {
   transition: transform 0.2s, box-shadow 0.2s;
   opacity: 0;
   animation: fadeIn 0.3s forwards;
+}
+
+.card img {
+  width: 100%;
+  border-radius: 6px;
+  margin-bottom: 0.5rem;
+}
+
+.summary {
+  font-style: italic;
+  margin-top: 0.5rem;
 }
 
 .card:hover {

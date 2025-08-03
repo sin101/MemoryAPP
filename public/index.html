@@ -10,10 +10,28 @@
   <header>
     <h1>MemoryApp Cards</h1>
     <div class="controls">
+      <input type="password" id="api-key" placeholder="Hugging Face API Token" />
+      <select id="summary-model">
+        <option value="google/flan-t5-base">Flan-T5</option>
+        <option value="google/mt5-base">mT5</option>
+        <option value="sshleifer/distilbart-cnn-12-6">DistilBART</option>
+      </select>
+      <select id="image-model">
+        <option value="stabilityai/stable-diffusion-xl-base-1.0">SDXL</option>
+        <option value="runwayml/stable-diffusion-v1-5">SD 1.5</option>
+      </select>
       <input type="search" id="search" placeholder="Search cards..." />
       <button id="theme-toggle" aria-label="Toggle dark mode">🌙</button>
     </div>
   </header>
+  <section id="add-card">
+    <form id="add-card-form">
+      <input type="text" id="new-title" placeholder="Title" required />
+      <input type="text" id="new-description" placeholder="Description" />
+      <input type="text" id="new-tags" placeholder="Tags (comma separated)" />
+      <button type="submit">Add Card</button>
+    </form>
+  </section>
   <main class="layout">
     <div id="cards" class="card-grid"></div>
     <aside id="suggestions">
