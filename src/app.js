@@ -456,8 +456,7 @@ class MemoryApp extends EventEmitter {
   async processCard(card) {
     const tasks = [];
     if (!card.summary) {
-      const text = card.content || card.source || card.title;
-      tasks.push(this.summarize(text).then(s => { card.summary = s; }));
+      tasks.push(this.summarizeCard(card).then(s => { card.summary = s; }));
     }
     if (!card.illustration) {
       tasks.push(this.generateIllustration(card.title).then(i => { card.illustration = i; }));
@@ -469,6 +468,14 @@ class MemoryApp extends EventEmitter {
 
   async summarize(text) {
     return this.ai.summarize(text);
+  }
+
+  async summarizeCard(card) {
+    if (this.ai.summarizeCard) {
+      return this.ai.summarizeCard(card);
+    }
+    const text = card.content || card.source || card.title;
+    return this.summarize(text);
   }
 
   async generateIllustration(title) {

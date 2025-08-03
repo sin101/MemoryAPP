@@ -1,7 +1,10 @@
+const fs = require('fs');
+
 const HF_MODELS = {
-  summarization: 'facebook/bart-large-cnn',
+  summarization: 'google/mt5-base',
   chat: 'HuggingFaceH4/zephyr-7b-beta',
-  image: 'runwayml/stable-diffusion-v1-5'
+  image: 'runwayml/stable-diffusion-v1-5',
+  transcription: 'openai/whisper-base'
 };
 
 async function fetchTopModel(apiKey, pipelineTag, search) {
@@ -26,6 +29,11 @@ async function fetchTopModel(apiKey, pipelineTag, search) {
 class SimpleAI {
   async summarize(text) {
     return text.split(/\s+/).slice(0, 20).join(' ');
+  }
+
+  async summarizeCard(card) {
+    const text = card.content || card.source || card.title || '';
+    return this.summarize(text);
   }
 
   async generateIllustration(title) {
@@ -66,10 +74,12 @@ class HuggingFaceAI {
     const summarization = await fetchTopModel(apiKey, 'summarization');
     const chat = await fetchTopModel(apiKey, 'text-generation', 'chat');
     const image = await fetchTopModel(apiKey, 'text-to-image', 'stable-diffusion');
+    const transcription = await fetchTopModel(apiKey, 'automatic-speech-recognition');
     return {
       summarization: summarization || HF_MODELS.summarization,
       chat: chat || HF_MODELS.chat,
-      image: image || HF_MODELS.image
+      image: image || HF_MODELS.image,
+      transcription: transcription || HF_MODELS.transcription
     };
   }
 
@@ -86,6 +96,25 @@ class HuggingFaceAI {
     return text.split(/\s+/).slice(0, 20).join(' ');
   }
 
+  async summarizeCard(card) {
+    await this.ready;
+    let text = card.content || card.source || card.title || '';
+    if (card.type === 'audio' || card.type === 'video') {
+      try {
+        text = await this.transcribe(text);
+      } catch (e) {
+        // keep original text on failure
+      }
+    } else if (card.type === 'url') {
+      try {
+        text = await this._extractFromUrl(text);
+      } catch (e) {
+        // ignore and fall back to original text
+      }
+    }
+    return this.summarize(text);
+  }
+
   async generateIllustration(prompt) {
     await this.ready;
     try {
@@ -94,6 +123,19 @@ class HuggingFaceAI {
     } catch (e) {
       return `illustration-${prompt.toLowerCase().replace(/[^a-z0-9]+/g, '_')}.png`;
     }
+  }
+
+  async transcribe(path) {
+    await this.ready;
+    const buf = await fs.promises.readFile(path);
+    const data = await this._file(this.models.transcription, buf, 'audio/mpeg');
+    return data.text || '';
+  }
+
+  async _extractFromUrl(url) {
+    const res = await fetch(url);
+    const html = await res.text();
+    return html.replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim();
   }
 
   async chat(query, app) {
@@ -154,6 +196,21 @@ class HuggingFaceAI {
     }
     const buf = Buffer.from(await res.arrayBuffer());
     return buf.toString('base64');
+  }
+
+  async _file(model, buffer, contentType) {
+    const res = await fetch(`https://api-inference.huggingface.co/models/${model}`, {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${this.apiKey}`,
+        'Content-Type': contentType
+      },
+      body: buffer
+    });
+    if (!res.ok) {
+      throw new Error(`HF request failed: ${res.status}`);
+    }
+    return res.json();
   }
 }
 
