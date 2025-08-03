@@ -15,6 +15,16 @@ When a `HUGGINGFACE_API_KEY` environment variable is present, the app will query
 
 The prototype also experiments with web suggestions: when enabled, the app will gather card tags and query public sources such as RSS feeds and Reddit to propose related content, with YouTube used for video cards and ArXiv for academic material. Suggestions can be turned off for privacy or offline use. The API now exposes helpers to retrieve recommendations for a selected card or to surface theme suggestions from the most common tags. A small static demo in the `public/` folder presents a Pokémon-style card layout and populates a suggestion list using these sources whenever a card or theme is selected.
 
+### YouTube API key
+
+Video suggestions rely on the YouTube Data API. Provide a key by setting `window.YT_API_KEY` in your browser console, for example:
+
+```js
+window.YT_API_KEY = 'your-key-here';
+```
+
+If no key is present, the demo will prompt for one when a YouTube request is made.
+
 ### Running tests
 
 ```
