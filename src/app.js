@@ -130,8 +130,12 @@ class MemoryApp extends EventEmitter {
           .then(() => this.emit('cardProcessed', card))
           .catch(err => this.emit('error', err));
       } else {
-        await this.processCard(card);
-        this.emit('cardProcessed', card);
+        try {
+          await this.processCard(card);
+          this.emit('cardProcessed', card);
+        } catch (err) {
+          this.emit('error', err);
+        }
       }
     }
     if (this.db) {
