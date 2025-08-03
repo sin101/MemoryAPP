@@ -1,3 +1,7 @@
+if (typeof fetch === 'undefined') {
+  global.fetch = require('node-fetch');
+}
+
 const FETCH_TIMEOUT_MS = 1000;
 
 async function timedFetch(url, options = {}, timeout = FETCH_TIMEOUT_MS) {
