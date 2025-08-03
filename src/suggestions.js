@@ -1,10 +1,21 @@
 const FETCH_TIMEOUT_MS = 1000;
 
 async function timedFetch(url, options = {}, timeout = FETCH_TIMEOUT_MS) {
-  return Promise.race([
-    fetch(url, options),
-    new Promise((_, reject) => setTimeout(() => reject(new Error('timeout')), timeout)),
-  ]);
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), timeout);
+  const fetchPromise = fetch(url, { ...options, signal: controller.signal });
+  const timeoutPromise = new Promise((_, reject) => {
+    controller.signal.addEventListener(
+      'abort',
+      () => reject(new Error('timeout')),
+      { once: true }
+    );
+  });
+  try {
+    return await Promise.race([fetchPromise, timeoutPromise]);
+  } finally {
+    clearTimeout(timer);
+  }
 }
 
 async function fetchFromWikipedia(tag) {
