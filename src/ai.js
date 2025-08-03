@@ -1,5 +1,9 @@
 const fs = require('fs');
 
+if (typeof fetch === 'undefined') {
+  global.fetch = require('node-fetch');
+}
+
 const HF_MODELS = {
   summarization: 'google/mt5-base',
   chat: 'HuggingFaceH4/zephyr-7b-beta',
