@@ -27,7 +27,7 @@ class Card {
   }
 
   addTag(tag) {
-    this.tags.add(tag);
+    this.tags.add(tag.toLowerCase());
   }
 
   addDeck(deckName) {
@@ -49,7 +49,7 @@ class Card {
       this.source = source;
     }
     if (tags !== undefined) {
-      this.tags = new Set(tags);
+      this.tags = new Set(tags.map(tag => tag.toLowerCase()));
     }
     if (description !== undefined) {
       this.description = description;

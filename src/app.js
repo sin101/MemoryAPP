@@ -75,7 +75,7 @@ class MemoryApp extends EventEmitter {
         new Set(basis.toLowerCase().split(/\W+/).filter(w => w.length > 3))
       );
       for (const w of words.slice(0, 3)) {
-        card.addTag(w);
+        card.addTag(w.toLowerCase());
       }
     }
     if (basis && !card.description) {
@@ -148,7 +148,8 @@ class MemoryApp extends EventEmitter {
   }
 
   searchByTag(tag) {
-    const ids = this.tagIndex.get(tag);
+    const t = tag.toLowerCase();
+    const ids = this.tagIndex.get(t);
     if (!ids) {
       return [];
     }
@@ -529,6 +530,9 @@ class MemoryApp extends EventEmitter {
     const app = new MemoryApp();
     app.aiEnabled = false;
       for (const cardData of data.cards || []) {
+      if (cardData.tags) {
+        cardData.tags = cardData.tags.map(t => t.toLowerCase());
+      }
       const card = new Card(cardData);
       app.cards.set(card.id, card);
       app._addToTagIndex(card);
@@ -569,6 +573,7 @@ class MemoryApp extends EventEmitter {
   loadFromDB() {
     const stored = this.db.loadCards();
     for (const data of stored) {
+      data.tags = data.tags.map(t => t.toLowerCase());
       const card = new Card(data);
       this.cards.set(card.id, card);
       this._addToTagIndex(card);
