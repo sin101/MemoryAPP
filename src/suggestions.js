@@ -1,10 +1,22 @@
+const { XMLParser } = require('fast-xml-parser');
 const FETCH_TIMEOUT_MS = 1000;
 
 async function timedFetch(url, options = {}, timeout = FETCH_TIMEOUT_MS) {
-  return Promise.race([
-    fetch(url, options),
-    new Promise((_, reject) => setTimeout(() => reject(new Error('timeout')), timeout)),
-  ]);
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), timeout);
+  const fetchPromise = fetch(url, { ...options, signal: controller.signal });
+  const timeoutPromise = new Promise((_, reject) => {
+    controller.signal.addEventListener(
+      'abort',
+      () => reject(new Error('timeout')),
+      { once: true }
+    );
+  });
+  try {
+    return await Promise.race([fetchPromise, timeoutPromise]);
+  } finally {
+    clearTimeout(timer);
+  }
 }
 
 async function fetchFromWikipedia(tag) {
@@ -56,15 +68,22 @@ async function fetchFromRSS(tag) {
     const res = await timedFetch(url);
     if (res.ok) {
       const text = await res.text();
-      const match = text.match(/<item>\s*<title>([^<]+)<\/title>\s*<link>([^<]+)<\/link>/i);
-      if (match) {
-        return {
-          tag,
-          title: match[1],
-          description: '',
-          url: match[2],
-          source: 'rss',
-        };
+      try {
+        const parser = new XMLParser();
+        const parsed = parser.parse(text);
+        const items = parsed && parsed.rss && parsed.rss.channel && parsed.rss.channel.item;
+        const first = Array.isArray(items) ? items[0] : items;
+        if (first && first.title && first.link) {
+          return {
+            tag,
+            title: first.title,
+            description: '',
+            url: first.link,
+            source: 'rss',
+          };
+        }
+      } catch (e) {
+        return null;
       }
     }
   } catch (e) {
