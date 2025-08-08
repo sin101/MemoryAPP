@@ -1,0 +1,9 @@
+{
+  "name": "MemoryApp",
+  "short_name": "MemoryApp",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#ffffff",
+  "description": "Personal content manager",
+  "icons": []
+}

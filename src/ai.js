@@ -72,6 +72,18 @@ class SimpleAI {
     const summary = card.summary || card.content.slice(0, 100);
     return `Found card ${card.title}: ${summary}`;
   }
+
+  async embed(text) {
+    const vec = new Array(26).fill(0);
+    for (const ch of text.toLowerCase()) {
+      const idx = ch.charCodeAt(0) - 97;
+      if (idx >= 0 && idx < 26) {
+        vec[idx] += 1;
+      }
+    }
+    const norm = Math.sqrt(vec.reduce((s, v) => s + v * v, 0)) || 1;
+    return vec.map(v => v / norm);
+  }
 }
 
 class HuggingFaceAI {

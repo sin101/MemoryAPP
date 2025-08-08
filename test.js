@@ -132,6 +132,16 @@ const { SimpleAI } = require('./src/ai');
   assert.strictEqual(loadedAiCard.type, aiCard.type, 'Type should persist');
   assert.strictEqual(loadedAiCard.createdAt, aiCard.createdAt, 'Creation date should persist');
 
+  // Semantic search
+  const semApp = new MemoryApp({ ai: new SimpleAI() });
+  const semTarget = await semApp.createCard({
+    title: 'Graphs',
+    content: 'Graph theory algorithms'
+  });
+  await semApp.createCard({ title: 'Cooking', content: 'Recipe for pasta' });
+  const semResults = await semApp.searchBySemantic('graph algorithms');
+  assert.strictEqual(semResults[0].id, semTarget.id, 'Semantic search should find related card');
+
   // Performance/behavior with many cards
   const manyApp = new MemoryApp();
   manyApp.setAIEnabled(false);
@@ -353,6 +363,26 @@ const { SimpleAI } = require('./src/ai');
   const themeFiltered = await filterApp.getThemeSuggestions(5);
   assert.strictEqual(themeFiltered.length, 1, 'Theme suggestions should filter out nulls');
   assert.strictEqual(themeFiltered[0].tag, 'good', 'Theme should include non-null suggestion');
+
+  // Encrypted export/import
+  const encApp = new MemoryApp();
+  const encCard = await encApp.createCard({ title: 'Secret', content: 'hidden' });
+  const encFile = 'secret.bin';
+  await encApp.saveEncryptedToFile(encFile, 'pw');
+  const encLoaded = await MemoryApp.loadEncryptedFromFile(encFile, 'pw');
+  fs.unlinkSync(encFile);
+  assert.strictEqual(encLoaded.cards.get(encCard.id).content, 'hidden', 'Encrypted roundtrip should preserve content');
+
+  // ZIP export/import
+  const zipApp = new MemoryApp();
+  await zipApp.createCard({ title: 'ZipCard', content: 'zip' });
+  await zipApp.saveMedia(Buffer.from('filedata'), 'file.txt');
+  const zipFile = 'cards.zip';
+  await zipApp.exportZip(zipFile);
+  const imported = await MemoryApp.importZip(zipFile);
+  fs.unlinkSync(zipFile);
+  fs.rmSync('storage', { recursive: true, force: true });
+  assert.strictEqual(imported.cards.size, 1, 'Importing zip should restore cards');
 
   console.log('All tests passed');
 })().catch(err => {
