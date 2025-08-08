@@ -2,10 +2,14 @@ const Card = require('./card');
 const Deck = require('./deck');
 const Link = require('./link');
 const fs = require('fs');
+const path = require('path');
 const MemoryDB = require('./db');
 const { SimpleAI, HuggingFaceAI, TransformersAI, hasLocalModels } = require('./ai');
 const EventEmitter = require('events');
 const { fetchSuggestion } = require('./suggestions');
+const crypto = require('crypto');
+const JSZip = require('jszip');
+const Logger = require('./logger');
 
 class MemoryApp extends EventEmitter {
   constructor(options = {}) {
@@ -20,6 +24,7 @@ class MemoryApp extends EventEmitter {
     this.nextLinkId = 1;
     this.aiEnabled = true;
     this.webSuggestionsEnabled = true;
+    this.externalCallsEnabled = true;
     this.backgroundProcessing = !!options.backgroundProcessing;
     if (options.ai) {
       this.ai = options.ai;
@@ -33,6 +38,12 @@ class MemoryApp extends EventEmitter {
     this.db = options.dbPath ? new MemoryDB(options.dbPath) : null;
     if (this.db) {
       this.loadFromDB();
+    }
+    if (options.logPath) {
+      this.logger = new Logger(options.logPath);
+      this.on('error', err => this.logger.error(err.message));
+      this.on('cardCreated', c => this.logger.info(`cardCreated:${c.id}`));
+      process.on('uncaughtException', err => this.logger.error(`uncaught:${err.message}`));
     }
   }
 
@@ -62,6 +73,19 @@ class MemoryApp extends EventEmitter {
 
   setWebSuggestionsEnabled(enabled) {
     this.webSuggestionsEnabled = enabled;
+  }
+
+  setExternalCallsEnabled(enabled) {
+    this.externalCallsEnabled = enabled;
+    this.aiEnabled = enabled;
+    this.webSuggestionsEnabled = enabled;
+  }
+
+  enableLogging(path) {
+    this.logger = new Logger(path);
+    this.on('error', err => this.logger.error(err.message));
+    this.on('cardCreated', c => this.logger.info(`cardCreated:${c.id}`));
+    process.on('uncaughtException', err => this.logger.error(`uncaught:${err.message}`));
   }
 
   enrichCard(cardId) {
@@ -129,6 +153,7 @@ class MemoryApp extends EventEmitter {
     }
     const oldTags = new Set(card.tags);
     card.update(data);
+    delete card.embedding;
     this.emit('cardUpdated', card);
     await this._processAndPersistCard(card);
     this._updateTagIndex(card, oldTags);
@@ -185,6 +210,40 @@ class MemoryApp extends EventEmitter {
       }
     }
     return results;
+  }
+
+  async searchBySemantic(query, limit = 5) {
+    if (!this.ai.embed) {
+      return this.searchByText(query).slice(0, limit);
+    }
+    const qVec = await this.ai.embed(query);
+    const scored = [];
+    for (const card of this.cards.values()) {
+      const basis = card.content || card.source || card.title || '';
+      if (!basis) {
+        continue;
+      }
+      if (!card.embedding) {
+        card.embedding = await this.ai.embed(basis);
+      }
+      const sim = cosine(qVec, card.embedding);
+      if (sim > 0) {
+        scored.push({ card, sim });
+      }
+    }
+    scored.sort((a, b) => b.sim - a.sim);
+    return scored.slice(0, limit).map(s => s.card);
+
+    function cosine(a, b) {
+      let dot = 0, na = 0, nb = 0;
+      const len = Math.min(a.length, b.length);
+      for (let i = 0; i < len; i++) {
+        dot += a[i] * b[i];
+        na += a[i] * a[i];
+        nb += b[i] * b[i];
+      }
+      return na && nb ? dot / Math.sqrt(na * nb) : 0;
+    }
   }
 
   recordCardUsage(cardId) {
@@ -559,6 +618,38 @@ class MemoryApp extends EventEmitter {
     await fs.promises.writeFile(path, JSON.stringify(this.toJSON(), null, 2));
   }
 
+  async saveEncryptedToFile(path, password) {
+    const iv = crypto.randomBytes(16);
+    const key = crypto.createHash('sha256').update(password).digest();
+    const cipher = crypto.createCipheriv('aes-256-ctr', key, iv);
+    const json = Buffer.from(JSON.stringify(this.toJSON()));
+    const encrypted = Buffer.concat([iv, cipher.update(json), cipher.final()]);
+    await fs.promises.writeFile(path, encrypted);
+  }
+
+  async saveMedia(buffer, filename) {
+    const dir = 'storage';
+    await fs.promises.mkdir(dir, { recursive: true });
+    const filePath = path.join(dir, filename);
+    await fs.promises.writeFile(filePath, buffer);
+    return filePath;
+  }
+
+  async exportZip(zipPath) {
+    const zip = new JSZip();
+    zip.file('data.json', JSON.stringify(this.toJSON(), null, 2));
+    const dir = 'storage';
+    if (fs.existsSync(dir)) {
+      const files = await fs.promises.readdir(dir);
+      for (const f of files) {
+        const content = await fs.promises.readFile(path.join(dir, f));
+        zip.file(`media/${f}`, content);
+      }
+    }
+    const buffer = await zip.generateAsync({ type: 'nodebuffer' });
+    await fs.promises.writeFile(zipPath, buffer);
+  }
+
   static fromJSON(data) {
     const app = new MemoryApp();
     app.aiEnabled = false;
@@ -601,6 +692,32 @@ class MemoryApp extends EventEmitter {
   static async loadFromFile(path) {
     const data = JSON.parse(await fs.promises.readFile(path, 'utf8'));
     return MemoryApp.fromJSON(data);
+  }
+
+  static async loadEncryptedFromFile(path, password) {
+    const data = await fs.promises.readFile(path);
+    const iv = data.slice(0, 16);
+    const encrypted = data.slice(16);
+    const key = crypto.createHash('sha256').update(password).digest();
+    const decipher = crypto.createDecipheriv('aes-256-ctr', key, iv);
+    const json = Buffer.concat([decipher.update(encrypted), decipher.final()]).toString();
+    return MemoryApp.fromJSON(JSON.parse(json));
+  }
+
+  static async importZip(zipPath) {
+    const data = await fs.promises.readFile(zipPath);
+    const zip = await JSZip.loadAsync(data);
+    const json = JSON.parse(await zip.file('data.json').async('string'));
+    const app = MemoryApp.fromJSON(json);
+    const dir = 'storage';
+    await fs.promises.mkdir(dir, { recursive: true });
+    const media = Object.keys(zip.files).filter(n => n.startsWith('media/') && !zip.files[n].dir);
+    for (const name of media) {
+      const content = await zip.file(name).async('nodebuffer');
+      const fname = name.replace('media/', '');
+      await fs.promises.writeFile(path.join(dir, fname), content);
+    }
+    return app;
   }
 
   loadFromDB() {

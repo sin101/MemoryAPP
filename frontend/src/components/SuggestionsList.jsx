@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { fetchSuggestion } from '../suggestions';
 
-export default function SuggestionsList({ card }) {
+export default function SuggestionsList({ card, onAdd, onEdit }) {
   const [suggestions, setSuggestions] = useState([]);
 
   useEffect(() => {
@@ -30,8 +30,8 @@ export default function SuggestionsList({ card }) {
 
   return (
     <ul className="list-disc pl-5 space-y-1">
-      {suggestions.map(s => (
-        <li key={s.url || s.title}>
+      {suggestions.map((s, i) => (
+        <li key={s.url || s.title} className="space-x-1">
           {s.url ? (
             <a
               href={s.url}
@@ -48,6 +48,10 @@ export default function SuggestionsList({ card }) {
             <span className="text-gray-500 text-sm ml-1">({s.source})</span>
           )}
           {s.description && <span className="text-gray-700"> - {s.description}</span>}
+          <button className="text-green-600 ml-1" onClick={() => onAdd && onAdd(s)}>Add</button>
+          <button className="text-yellow-600" onClick={() => onEdit && onEdit(s)}>Edit</button>
+          <button className="text-red-600" onClick={() => setSuggestions(prev => prev.filter((_, idx) => idx !== i))}>Ignore</button>
+          {s.url && <button className="text-blue-600" onClick={() => window.open(s.url)}>View</button>}
         </li>
       ))}
     </ul>
