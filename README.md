@@ -30,3 +30,19 @@ If no key is present, the demo will prompt for one when a YouTube request is mad
 ```
 npm test
 ```
+
+### Backup and Restore
+
+Uploaded media files are saved in a local `storage/` directory. The path to each stored file is recorded in the card's `source` field.
+
+Create a full backup, including all media, by exporting to a zip archive:
+
+```js
+await app.exportToZip('backup.zip');
+```
+
+Restore a backup and recreate the `storage/` directory:
+
+```js
+const app = await MemoryApp.importFromZip('backup.zip');
+```

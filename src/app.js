@@ -2,6 +2,8 @@ const Card = require('./card');
 const Deck = require('./deck');
 const Link = require('./link');
 const fs = require('fs');
+const path = require('path');
+const JSZip = require('jszip');
 const MemoryDB = require('./db');
 const { SimpleAI, HuggingFaceAI } = require('./ai');
 const EventEmitter = require('events');
@@ -34,7 +36,27 @@ class MemoryApp extends EventEmitter {
     }
   }
 
+  async saveMedia(srcPath) {
+    const storageDir = path.join(process.cwd(), 'storage');
+    await fs.promises.mkdir(storageDir, { recursive: true });
+    const original = path.basename(srcPath);
+    const { name, ext } = path.parse(original);
+    let targetName = original;
+    let destPath = path.join(storageDir, targetName);
+    let counter = 1;
+    while (fs.existsSync(destPath)) {
+      targetName = `${name}-${counter}${ext}`;
+      destPath = path.join(storageDir, targetName);
+      counter += 1;
+    }
+    await fs.promises.copyFile(srcPath, destPath);
+    return `storage/${targetName}`;
+  }
+
   async createCard(data) {
+    if (data.source && fs.existsSync(data.source) && !data.source.startsWith('storage/')) {
+      data.source = await this.saveMedia(data.source);
+    }
     if (!data.id) {
       data.id = String(this.nextId++);
     } else {
@@ -124,6 +146,9 @@ class MemoryApp extends EventEmitter {
     const card = this.cards.get(cardId);
     if (!card) {
       return null;
+    }
+    if (data.source && fs.existsSync(data.source) && !data.source.startsWith('storage/')) {
+      data.source = await this.saveMedia(data.source);
     }
     const oldTags = new Set(card.tags);
     card.update(data);
@@ -557,6 +582,19 @@ class MemoryApp extends EventEmitter {
     await fs.promises.writeFile(path, JSON.stringify(this.toJSON(), null, 2));
   }
 
+  async exportToZip(zipPath) {
+    const zip = new JSZip();
+    zip.file('data.json', JSON.stringify(this.toJSON(), null, 2));
+    for (const card of this.cards.values()) {
+      if (card.source && fs.existsSync(card.source)) {
+        const fileData = await fs.promises.readFile(card.source);
+        zip.file(card.source, fileData);
+      }
+    }
+    const content = await zip.generateAsync({ type: 'nodebuffer' });
+    await fs.promises.writeFile(zipPath, content);
+  }
+
   static fromJSON(data) {
     const app = new MemoryApp();
     app.aiEnabled = false;
@@ -599,6 +637,31 @@ class MemoryApp extends EventEmitter {
   static async loadFromFile(path) {
     const data = JSON.parse(await fs.promises.readFile(path, 'utf8'));
     return MemoryApp.fromJSON(data);
+  }
+
+  static async importFromZip(zipPath) {
+    const data = await fs.promises.readFile(zipPath);
+    const zip = await JSZip.loadAsync(data);
+    const dataFile = zip.file('data.json');
+    if (!dataFile) {
+      throw new Error('Invalid backup');
+    }
+    const json = JSON.parse(await dataFile.async('string'));
+    const storageDir = path.join(process.cwd(), 'storage');
+    await fs.promises.mkdir(storageDir, { recursive: true });
+    const filePromises = [];
+    zip.forEach((relativePath, file) => {
+      if (relativePath.startsWith('storage/') && !file.dir) {
+        const dest = path.join(process.cwd(), relativePath);
+        filePromises.push(file.async('nodebuffer').then(buf =>
+          fs.promises.mkdir(path.dirname(dest), { recursive: true }).then(() =>
+            fs.promises.writeFile(dest, buf)
+          )
+        ));
+      }
+    });
+    await Promise.all(filePromises);
+    return MemoryApp.fromJSON(json);
   }
 
   loadFromDB() {

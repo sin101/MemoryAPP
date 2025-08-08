@@ -94,19 +94,31 @@ const { SimpleAI } = require('./src/ai');
 
   // Generic content handling with source persistence
   const mediaApp = new MemoryApp();
+  fs.writeFileSync('photo.png', 'img');
   const mediaCard = await mediaApp.createCard({
     title: 'Photo',
     source: 'photo.png',
     type: 'image',
     tags: ['pic']
   });
+  const storedPath = mediaCard.source;
+  assert.ok(storedPath.startsWith('storage/'), 'Media should be copied to storage');
+  assert.ok(fs.existsSync(storedPath), 'Stored file should exist');
   assert.ok(mediaCard.summary, 'Media card should have a summary');
   assert.strictEqual(mediaApp.searchByTag('pic')[0].id, mediaCard.id, 'Tag search should find media card');
   const mediaFile = 'media.json';
   await mediaApp.saveToFile(mediaFile);
   const loadedMedia = await MemoryApp.loadFromFile(mediaFile);
   fs.unlinkSync(mediaFile);
-  assert.strictEqual(loadedMedia.cards.get(mediaCard.id).source, 'photo.png', 'Source should persist through export');
+  assert.strictEqual(loadedMedia.cards.get(mediaCard.id).source, storedPath, 'Source should persist through export');
+  const zipPath = 'backup.zip';
+  await mediaApp.exportToZip(zipPath);
+  fs.unlinkSync(storedPath);
+  const imported = await MemoryApp.importFromZip(zipPath);
+  fs.unlinkSync(zipPath);
+  assert.strictEqual(imported.cards.get(mediaCard.id).source, storedPath, 'Source should persist through zip import');
+  fs.unlinkSync('photo.png');
+  fs.unlinkSync(storedPath);
 
   // AI enrichment and search on description
   const aiApp = new MemoryApp();
@@ -291,15 +303,19 @@ const { SimpleAI } = require('./src/ai');
 
   // Database persistence
   const dbFile = 'cards.db';
+  fs.writeFileSync('dbsource.txt', 'db');
   const dbApp1 = new MemoryApp({ dbPath: dbFile });
   const dbCard = await dbApp1.createCard({ title: 'DB', content: 'Stored in sqlite', source: 'dbsource.txt' });
+  const storedDbPath = dbCard.source;
   dbApp1.db.close();
   const dbApp2 = new MemoryApp({ dbPath: dbFile });
   assert.ok(dbApp2.cards.has(dbCard.id), 'DB app should load existing card');
   assert.strictEqual(dbApp2.cards.get(dbCard.id).summary, dbCard.summary, 'Summary should persist in DB');
-  assert.strictEqual(dbApp2.cards.get(dbCard.id).source, 'dbsource.txt', 'Source should persist in DB');
+  assert.strictEqual(dbApp2.cards.get(dbCard.id).source, storedDbPath, 'Source should persist in DB');
   dbApp2.db.close();
   fs.unlinkSync(dbFile);
+  fs.unlinkSync('dbsource.txt');
+  fs.unlinkSync(storedDbPath);
 
   // Link ID uniqueness after deletions and reload
   const linkApp = new MemoryApp();
