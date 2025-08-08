@@ -91,8 +91,43 @@ header {
   gap: 2rem;
 }
 
+#deck-sidebar {
+  flex: 1;
+  max-width: 200px;
+}
+
+#deck-list {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+}
+
+#deck-list li {
+  padding: 4px 8px;
+  cursor: pointer;
+  border-radius: 4px;
+}
+
+#deck-list li.active {
+  background: var(--card-border);
+  color: var(--bg);
+}
+
 #cards {
   flex: 3;
+}
+
+#graph {
+  flex: 3;
+  height: 400px;
+  border: 3px solid var(--card-border);
+  border-radius: 10px;
+  background: var(--card-bg);
+}
+
+.graph-view.hidden,
+#cards.hidden {
+  display: none;
 }
 
 .card-grid {
@@ -149,6 +184,21 @@ header {
   margin: 2px;
   font-size: 0.8rem;
   cursor: pointer;
+}
+
+.card-controls {
+  margin-top: 0.5rem;
+  display: flex;
+  gap: 0.25rem;
+}
+
+.card-controls button {
+  font-size: 0.8rem;
+  cursor: pointer;
+}
+
+.card-controls .fav.favorite {
+  color: gold;
 }
 
 #suggestions {
