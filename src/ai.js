@@ -8,7 +8,8 @@ const HF_MODELS = {
   summarization: 'google/mt5-base',
   chat: 'HuggingFaceH4/zephyr-7b-beta',
   image: 'runwayml/stable-diffusion-v1-5',
-  transcription: 'openai/whisper-base'
+  transcription: 'openai/whisper-base',
+  embedding: 'sentence-transformers/all-MiniLM-L6-v2'
 };
 
 async function fetchTopModel(apiKey, pipelineTag, search) {
@@ -42,6 +43,15 @@ class SimpleAI {
 
   async generateIllustration(title) {
     return `illustration-${title.toLowerCase().replace(/[^a-z0-9]+/g, '_')}.png`;
+  }
+
+  async embed(text) {
+    const words = (text || '').toLowerCase().split(/\W+/).filter(Boolean);
+    const vec = new Array(10).fill(0);
+    for (let i = 0; i < words.length; i++) {
+      vec[i % 10] += words[i].length;
+    }
+    return vec;
   }
 
   async chat(query, app) {
@@ -79,11 +89,13 @@ class HuggingFaceAI {
     const chat = await fetchTopModel(apiKey, 'text-generation', 'chat');
     const image = await fetchTopModel(apiKey, 'text-to-image', 'stable-diffusion');
     const transcription = await fetchTopModel(apiKey, 'automatic-speech-recognition');
+    const embedding = await fetchTopModel(apiKey, 'feature-extraction');
     return {
       summarization: summarization || HF_MODELS.summarization,
       chat: chat || HF_MODELS.chat,
       image: image || HF_MODELS.image,
-      transcription: transcription || HF_MODELS.transcription
+      transcription: transcription || HF_MODELS.transcription,
+      embedding: embedding || HF_MODELS.embedding
     };
   }
 
@@ -127,6 +139,20 @@ class HuggingFaceAI {
     } catch (e) {
       return `illustration-${prompt.toLowerCase().replace(/[^a-z0-9]+/g, '_')}.png`;
     }
+  }
+
+  async embed(text) {
+    await this.ready;
+    try {
+      const data = await this._json(this.models.embedding, { inputs: text });
+      if (Array.isArray(data)) {
+        return Array.isArray(data[0]) ? data[0] : data;
+      }
+    } catch (e) {
+      // fall back to trivial embedding
+    }
+    const words = (text || '').toLowerCase().split(/\W+/).filter(Boolean);
+    return words.map(w => w.length);
   }
 
   async transcribe(path) {

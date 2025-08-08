@@ -125,7 +125,7 @@ async function fetchFromArXiv(tag) {
   return null;
 }
 
-async function fetchSuggestion(tag, type = 'text') {
+async function fetchSuggestion(tag, type = 'text', _app = null, _threshold = 0.2) {
   const strategies = [];
   if (type === 'video') {
     strategies.push(fetchFromYouTube);

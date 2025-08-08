@@ -11,6 +11,7 @@ class Card {
     createdAt = new Date().toISOString(),
     summary = '',
     illustration = '',
+    embedding = null,
   }) {
     this.id = id;
     this.title = title;
@@ -23,6 +24,7 @@ class Card {
     this.createdAt = createdAt;
     this.summary = summary;
     this.illustration = illustration;
+    this.embedding = embedding;
     this._updateSearchText();
   }
 

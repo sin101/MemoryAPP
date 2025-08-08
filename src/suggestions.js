@@ -4,6 +4,23 @@ if (typeof fetch === 'undefined') {
 const { XMLParser } = require('fast-xml-parser');
 const FETCH_TIMEOUT_MS = 1000;
 
+function cosineSimilarity(a, b) {
+  const len = Math.min(a.length, b.length);
+  if (len === 0) return 0;
+  let dot = 0;
+  let normA = 0;
+  let normB = 0;
+  for (let i = 0; i < len; i++) {
+    const x = a[i];
+    const y = b[i];
+    dot += x * y;
+    normA += x * x;
+    normB += y * y;
+  }
+  if (!normA || !normB) return 0;
+  return dot / Math.sqrt(normA * normB);
+}
+
 async function timedFetch(url, options = {}, timeout = FETCH_TIMEOUT_MS) {
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), timeout);
@@ -142,7 +159,12 @@ async function fetchFromArXiv(tag) {
   return null;
 }
 
-async function fetchSuggestion(tag, type = 'text') {
+async function fetchSuggestion(
+  tag,
+  type = 'text',
+  app = null,
+  threshold = 0.2
+) {
   const strategies = [];
   if (type === 'video') {
     strategies.push(fetchFromYouTube);
@@ -150,14 +172,54 @@ async function fetchSuggestion(tag, type = 'text') {
     strategies.push(fetchFromArXiv);
   }
   strategies.push(fetchFromReddit, fetchFromRSS, fetchFromWikipedia);
-  const promises = strategies.map(fn =>
-    fn(tag).then(res => (res ? res : Promise.reject(new Error('no result'))))
+  const results = await Promise.all(
+    strategies.map(fn => fn(tag).catch(() => null))
   );
-  try {
-    return await Promise.any(promises);
-  } catch {
+  const suggestions = results.filter(Boolean);
+  if (suggestions.length === 0) {
     return { tag, title: tag, description: '', url: '', source: 'none' };
   }
+  if (app && app.ai && app.ai.embed) {
+    let tagVec = null;
+    try {
+      tagVec = await (app.getTagVector
+        ? app.getTagVector(tag)
+        : app.ai.embed(tag));
+    } catch {
+      tagVec = null;
+    }
+    let cardVecs = [];
+    if (app.getCardEmbeddingsForTag) {
+      try {
+        cardVecs = await app.getCardEmbeddingsForTag(tag);
+      } catch {
+        cardVecs = [];
+      }
+    }
+    for (const s of suggestions) {
+      try {
+        s.embedding = await app.ai.embed(`${s.title} ${s.description}`);
+      } catch {
+        s.embedding = [];
+      }
+      let score = 0;
+      if (tagVec) {
+        score = cosineSimilarity(s.embedding, tagVec);
+      }
+      for (const cv of cardVecs) {
+        const cs = cosineSimilarity(s.embedding, cv);
+        if (cs > score) score = cs;
+      }
+      s._similarity = score;
+    }
+    suggestions.sort((a, b) => b._similarity - a._similarity);
+    const best = suggestions[0];
+    if (!best || best._similarity < threshold) {
+      return { tag, title: tag, description: '', url: '', source: 'none' };
+    }
+    return best;
+  }
+  return suggestions[0];
 }
 
 const api = {

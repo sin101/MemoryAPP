@@ -16,6 +16,11 @@ class MemoryApp extends EventEmitter {
     this.linksByCard = new Map();
     this.tagIndex = new Map();
     this.usageStats = new Map();
+    this.tagEmbeddings = new Map();
+    this.suggestionThreshold =
+      options.suggestionThreshold !== undefined
+        ? options.suggestionThreshold
+        : 0.2;
     this.nextId = 1;
     this.nextLinkId = 1;
     this.aiEnabled = true;
@@ -60,6 +65,43 @@ class MemoryApp extends EventEmitter {
 
   setWebSuggestionsEnabled(enabled) {
     this.webSuggestionsEnabled = enabled;
+  }
+
+  setSuggestionThreshold(value) {
+    this.suggestionThreshold = value;
+  }
+
+  async getTagVector(tag) {
+    const key = tag.toLowerCase();
+    if (this.tagEmbeddings.has(key)) {
+      return this.tagEmbeddings.get(key);
+    }
+    if (!this.ai.embed) {
+      return null;
+    }
+    const vec = await this.ai.embed(key);
+    this.tagEmbeddings.set(key, vec);
+    return vec;
+    }
+
+  async getCardEmbeddingsForTag(tag) {
+    const cards = this.searchByTag(tag);
+    const vectors = [];
+    for (const card of cards) {
+      if (this.ai.embed && !card.embedding) {
+        try {
+          card.embedding = await this.ai.embed(
+            card.content || card.source || card.title || ''
+          );
+        } catch {
+          /* ignore */
+        }
+      }
+      if (card.embedding) {
+        vectors.push(card.embedding);
+      }
+    }
+    return vectors;
   }
 
   enrichCard(cardId) {
@@ -254,7 +296,9 @@ class MemoryApp extends EventEmitter {
       if (pending.length >= limit) {
         break;
       }
-      pending.push(fetchSuggestion(tag, card.type));
+      pending.push(
+        fetchSuggestion(tag, card.type, this, this.suggestionThreshold)
+      );
     }
     const results = await Promise.all(pending);
     return results.filter(r => r);
@@ -278,7 +322,7 @@ class MemoryApp extends EventEmitter {
       if (pending.length >= limit) {
         break;
       }
-      pending.push(fetchSuggestion(tag));
+      pending.push(fetchSuggestion(tag, 'text', this, this.suggestionThreshold));
     }
     const results = await Promise.all(pending);
     return results.filter(r => r);
@@ -491,11 +535,23 @@ class MemoryApp extends EventEmitter {
 
   async processCard(card) {
     const tasks = [];
+    if (this.ai.embed) {
+      const basis = card.content || card.source || card.title || '';
+      tasks.push(
+        this.ai.embed(basis).then(v => {
+          card.embedding = v;
+        })
+      );
+    }
     if (!card.summary) {
       tasks.push(this.summarizeCard(card).then(s => { card.summary = s; }));
     }
     if (!card.illustration) {
-      tasks.push(this.generateIllustration(card.title).then(i => { card.illustration = i; }));
+      tasks.push(
+        this.generateIllustration(card.title).then(i => {
+          card.illustration = i;
+        })
+      );
     }
     if (tasks.length > 0) {
       await Promise.all(tasks);
@@ -539,6 +595,7 @@ class MemoryApp extends EventEmitter {
         createdAt: card.createdAt,
         summary: card.summary,
         illustration: card.illustration,
+        embedding: card.embedding,
       })),
       decks: Array.from(this.decks.values()).map(deck => ({
         name: deck.name,
