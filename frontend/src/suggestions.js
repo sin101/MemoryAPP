@@ -12,7 +12,9 @@ async function fetchFromWikipedia(tag) {
         source: 'wikipedia',
       };
     }
-  } catch (e) {}
+  } catch (e) {
+    console.error(e);
+  }
   return null;
 }
 
@@ -33,7 +35,9 @@ async function fetchFromReddit(tag) {
         };
       }
     }
-  } catch (e) {}
+  } catch (e) {
+    console.error(e);
+  }
   return null;
 }
 
@@ -54,7 +58,9 @@ async function fetchFromRSS(tag) {
         };
       }
     }
-  } catch (e) {}
+  } catch (e) {
+    console.error(e);
+  }
   return null;
 }
 
@@ -90,7 +96,9 @@ async function fetchFromYouTube(tag) {
         };
       }
     }
-  } catch (e) {}
+  } catch (e) {
+    console.error(e);
+  }
   return null;
 }
 
@@ -111,7 +119,9 @@ async function fetchFromArXiv(tag) {
         };
       }
     }
-  } catch (e) {}
+  } catch (e) {
+    console.error(e);
+  }
   return null;
 }
 

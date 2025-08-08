@@ -8,9 +8,11 @@ export default function DeckSidebar({ decks, current, onSelect }) {
         <li className={current === null ? 'font-bold' : ''}>
           <button onClick={() => onSelect(null)}>All</button>
         </li>
-        {decks.map(d => (
+        {Object.entries(decks).map(([d, count]) => (
           <li key={d} className={current === d ? 'font-bold' : ''}>
-            <button onClick={() => onSelect(d)}>{d}</button>
+            <button onClick={() => onSelect(d)}>
+              {d} ({count})
+            </button>
           </li>
         ))}
       </ul>
