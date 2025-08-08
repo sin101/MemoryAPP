@@ -1,4 +1,5 @@
 const fs = require('fs');
+const path = require('path');
 
 if (typeof fetch === 'undefined') {
   global.fetch = require('node-fetch');
@@ -8,7 +9,8 @@ const HF_MODELS = {
   summarization: 'google/mt5-base',
   chat: 'HuggingFaceH4/zephyr-7b-beta',
   image: 'runwayml/stable-diffusion-v1-5',
-  transcription: 'openai/whisper-base'
+  transcription: 'openai/whisper-base',
+  embedding: 'sentence-transformers/all-MiniLM-L6-v2'
 };
 
 async function fetchTopModel(apiKey, pipelineTag, search) {
@@ -28,6 +30,23 @@ async function fetchTopModel(apiKey, pipelineTag, search) {
   } catch (e) {
     return null;
   }
+}
+
+const LOCAL_MODEL_DIR = path.join(__dirname, '..', 'models');
+
+function hasLocalModels(modelsDir = LOCAL_MODEL_DIR) {
+  return (
+    fs.existsSync(path.join(modelsDir, 'summarization', 'config.json')) &&
+    fs.existsSync(path.join(modelsDir, 'embedding', 'config.json'))
+  );
+}
+
+let transformersPromise = null;
+function loadTransformers() {
+  if (!transformersPromise) {
+    transformersPromise = import('@xenova/transformers');
+  }
+  return transformersPromise;
 }
 
 class SimpleAI {
@@ -129,6 +148,27 @@ class HuggingFaceAI {
     }
   }
 
+  async embed(text) {
+    await this.ready;
+    try {
+      const data = await this._json(this.models.embedding, { inputs: text });
+      if (Array.isArray(data)) {
+        const arr = Array.isArray(data[0][0]) ? data[0] : [data[0]];
+        const dim = arr[0].length;
+        const out = new Array(dim).fill(0);
+        for (const token of arr) {
+          for (let i = 0; i < dim; i++) {
+            out[i] += token[i];
+          }
+        }
+        return out.map(v => v / arr.length);
+      }
+    } catch (e) {
+      // ignore errors and fall back to empty embedding
+    }
+    return [];
+  }
+
   async transcribe(path) {
     await this.ready;
     const buf = await fs.promises.readFile(path);
@@ -218,4 +258,66 @@ class HuggingFaceAI {
   }
 }
 
-module.exports = { SimpleAI, HuggingFaceAI, HF_MODELS };
+class TransformersAI {
+  constructor(options = {}) {
+    this.modelsDir = options.modelsDir || LOCAL_MODEL_DIR;
+    this.summarizer = null;
+    this.embedder = null;
+    this.fallback = options.fallback || (process.env.HUGGINGFACE_API_KEY ? new HuggingFaceAI(options) : new SimpleAI());
+  }
+
+  async _ensure() {
+    if (this.summarizer && this.embedder) {
+      return;
+    }
+    if (!hasLocalModels(this.modelsDir)) {
+      throw new Error('Local models not found');
+    }
+    const { pipeline } = await loadTransformers();
+    if (!this.summarizer) {
+      const sumDir = path.join(this.modelsDir, 'summarization');
+      this.summarizer = await pipeline('summarization', sumDir);
+    }
+    if (!this.embedder) {
+      const embDir = path.join(this.modelsDir, 'embedding');
+      this.embedder = await pipeline('feature-extraction', embDir);
+    }
+  }
+
+  async summarize(text) {
+    try {
+      await this._ensure();
+      const res = await this.summarizer(text);
+      return res[0]?.summary_text || text.split(/\s+/).slice(0, 20).join(' ');
+    } catch (e) {
+      return this.fallback.summarize(text);
+    }
+  }
+
+  async summarizeCard(card) {
+    const text = card.content || card.source || card.title || '';
+    return this.summarize(text);
+  }
+
+  async embed(text) {
+    try {
+      await this._ensure();
+      const res = await this.embedder(text, { pooling: 'mean', normalize: true });
+      const arr = Array.from(res.data || res);
+      return arr;
+    } catch (e) {
+      if (this.fallback.embed) {
+        return this.fallback.embed(text);
+      }
+      return [];
+    }
+  }
+}
+
+module.exports = {
+  SimpleAI,
+  HuggingFaceAI,
+  TransformersAI,
+  HF_MODELS,
+  hasLocalModels
+};

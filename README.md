@@ -25,6 +25,18 @@ window.YT_API_KEY = 'your-key-here';
 
 If no key is present, the demo will prompt for one when a YouTube request is made.
 
+### Local Transformers models
+
+For offline summarization and text embeddings, you can download small models for use with [Transformers.js](https://github.com/xenova/transformers.js). The app checks for models in a local `models/` directory and uses them when available, otherwise it falls back to Hugging Face's hosted API if `HUGGINGFACE_API_KEY` is set.
+
+```bash
+mkdir -p models/summarization models/embedding
+npx @xenova/transformers-cli download --model Xenova/distilbart-cnn-6-6 --dir models/summarization
+npx @xenova/transformers-cli download --model Xenova/all-MiniLM-L6-v2 --dir models/embedding
+```
+
+Summarization uses `Xenova/distilbart-cnn-6-6` and embeddings use the MiniLM model `Xenova/all-MiniLM-L6-v2`.
+
 ### Running tests
 
 ```
