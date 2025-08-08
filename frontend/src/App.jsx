@@ -1,9 +1,11 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
+import Fuse from 'fuse.js';
 import CardGrid from './components/CardGrid';
 import SuggestionsList from './components/SuggestionsList';
 import QuickAdd from './components/QuickAdd';
 import DeckSidebar from './components/DeckSidebar';
 import GraphView from './components/GraphView';
+import Chatbot from './components/Chatbot';
 
 const defaultCards = [
   {
@@ -11,12 +13,14 @@ const defaultCards = [
     title: 'Sample Note',
     description: 'Demo card used for the UI prototype.',
     tags: ['demo', 'sample'],
+    decks: [],
   },
   {
     id: '2',
     title: 'JavaScript',
     description: 'Notes about JS.',
     tags: ['JavaScript', 'code'],
+    decks: [],
   },
 ];
 
@@ -27,6 +31,14 @@ export default function App() {
   const [deckFilter, setDeckFilter] = useState(null);
   const [showGraph, setShowGraph] = useState(false);
   const [quickAddInitial, setQuickAddInitial] = useState('');
+  const [links, setLinks] = useState([]);
+  const [webSuggestionsEnabled, setWebSuggestionsEnabled] = useState(() => {
+    try {
+      return JSON.parse(localStorage.getItem('webSuggestionsEnabled') || 'true');
+    } catch {
+      return true;
+    }
+  });
 
   useEffect(() => {
     let stored = [];
@@ -39,22 +51,31 @@ export default function App() {
       stored = defaultCards;
       localStorage.setItem('cards', JSON.stringify(stored));
     }
+    stored = stored.map(c => {
+      if (c.deck && !c.decks) {
+        c.decks = [c.deck];
+        delete c.deck;
+      }
+      c.decks = c.decks || [];
+      return c;
+    });
     setCards(stored);
   }, []);
+  const fuse = useMemo(() => new Fuse(cards, { keys: ['title', 'description', 'tags'], threshold: 0.3 }), [cards]);
+  const filtered = useMemo(() => {
+    const base = query.trim() ? fuse.search(query.trim()).map(r => r.item) : cards;
+    return base.filter(c => (deckFilter ? c.decks?.includes(deckFilter) : true));
+  }, [cards, fuse, query, deckFilter]);
 
-  const filtered = cards.filter(c => {
-    const q = query.trim().toLowerCase();
-    const matchesQuery =
-      c.title.toLowerCase().includes(q) ||
-      c.tags.some(t => t.toLowerCase().includes(q));
-    const matchesDeck = deckFilter ? c.deck === deckFilter : true;
-    return matchesQuery && matchesDeck;
-  });
-
-  const decks = Array.from(new Set(cards.map(c => c.deck).filter(Boolean)));
+  const decks = cards.reduce((acc, c) => {
+    (c.decks || []).forEach(d => {
+      acc[d] = (acc[d] || 0) + 1;
+    });
+    return acc;
+  }, {});
 
   const addCard = data => {
-    const newCard = { id: String(Date.now()), tags: [], ...data };
+    const newCard = { id: String(Date.now()), tags: [], decks: [], ...data };
     setCards(prev => {
       const next = [...prev, newCard];
       localStorage.setItem('cards', JSON.stringify(next));
@@ -64,9 +85,19 @@ export default function App() {
 
   const editCard = card => {
     const title = prompt('Edit title', card.title);
-    if (title) {
+    const decksStr = prompt(
+      'Edit decks (comma separated)',
+      (card.decks || []).join(',')
+    );
+    if (title !== null && decksStr !== null) {
+      const decks = decksStr
+        .split(',')
+        .map(d => d.trim())
+        .filter(Boolean);
       setCards(prev => {
-        const next = prev.map(c => (c.id === card.id ? { ...c, title } : c));
+        const next = prev.map(c =>
+          c.id === card.id ? { ...c, title, decks } : c
+        );
         localStorage.setItem('cards', JSON.stringify(next));
         return next;
       });
@@ -82,15 +113,35 @@ export default function App() {
   };
 
   const favCard = card => {
-    addCard({ ...card, id: 'fav-' + card.id, deck: 'favorites' });
+    addCard({
+      ...card,
+      id: 'fav-' + card.id,
+      decks: [...(card.decks || []), 'favorites'],
+    });
   };
 
   const handleSuggestionAdd = s => {
-    addCard({ title: s.title, description: s.description, tags: [s.tag || 'suggested'] });
+    addCard({
+      title: s.title,
+      description: s.description,
+      tags: [s.tag || 'suggested'],
+    });
   };
 
   const handleSuggestionEdit = s => {
     setQuickAddInitial(s.title);
+  };
+
+  const handleLinkCreate = (from, to) => {
+    setLinks(prev => [...prev, { id: Date.now().toString(), from, to }]);
+  };
+
+  const toggleWebSuggestions = () => {
+    setWebSuggestionsEnabled(prev => {
+      const next = !prev;
+      localStorage.setItem('webSuggestionsEnabled', JSON.stringify(next));
+      return next;
+    });
   };
 
   return (
@@ -109,7 +160,7 @@ export default function App() {
         </div>
         <QuickAdd onAdd={addCard} initial={quickAddInitial} />
         {showGraph ? (
-          <GraphView cards={cards} links={[]} />
+          <GraphView cards={cards} links={links} onLink={handleLinkCreate} />
         ) : (
           <CardGrid
             cards={filtered}
@@ -120,8 +171,29 @@ export default function App() {
           />
         )}
         <div className="mt-6">
-          <h2 className="text-xl font-semibold mb-2">Suggestions</h2>
-          <SuggestionsList card={selected} onAdd={handleSuggestionAdd} onEdit={handleSuggestionEdit} />
+          <h2 className="text-xl font-semibold mb-2 flex items-center">
+            Suggestions
+            <label className="ml-2 text-sm">
+              <input
+                type="checkbox"
+                checked={webSuggestionsEnabled}
+                onChange={toggleWebSuggestions}
+                className="mr-1"
+              />
+              Enable web
+            </label>
+          </h2>
+          <SuggestionsList
+            card={selected}
+            cards={cards}
+            enabled={webSuggestionsEnabled}
+            onAdd={handleSuggestionAdd}
+            onEdit={handleSuggestionEdit}
+          />
+        </div>
+        <div className="mt-6">
+          <h2 className="text-xl font-semibold mb-2">Chatbot</h2>
+          <Chatbot cards={cards} />
         </div>
       </div>
     </div>
