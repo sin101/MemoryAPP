@@ -14,11 +14,11 @@ const tagColors = {
   code: 'bg-blue-200',
 };
 
-const tagIcons = {
-  demo: '🎴',
-  sample: '📘',
-  javascript: '💻',
-  code: '🧩',
+const typeIcons = {
+  text: '📝',
+  image: '🖼️',
+  link: '🔗',
+  file: '📁',
 };
 
 export default function CardGrid({ cards, onSelect, onEdit, onDelete, onFav }) {
@@ -39,10 +39,15 @@ export default function CardGrid({ cards, onSelect, onEdit, onDelete, onFav }) {
             <button onClick={e => { e.stopPropagation(); onFav && onFav(card); }} className="text-xs">⭐</button>
           </div>
           <h3 className="text-lg font-semibold mb-2 flex items-center">
-            <span className="mr-1">{tagIcons[card.tags[0]?.toLowerCase()] || '📝'}</span>
+            <span className="mr-1">{typeIcons[card.contentType || card.type || 'text'] || '📝'}</span>
             {card.title}
           </h3>
-          {card.image && <img src={card.image} alt="illustration" className="mb-2" />}
+          {card.illustration && (
+            <img src={card.illustration} alt="illustration" className="mb-2" />
+          )}
+          {!card.illustration && card.image && (
+            <img src={card.image} alt="illustration" className="mb-2" />
+          )}
           <p>{card.description}</p>
           {card.summary && <p className="text-sm text-gray-600">{card.summary}</p>}
           <div className="mt-2 space-x-1">

@@ -14,6 +14,7 @@ const defaultCards = [
     description: 'Demo card used for the UI prototype.',
     tags: ['demo', 'sample'],
     decks: [],
+    type: 'text',
   },
   {
     id: '2',
@@ -21,6 +22,7 @@ const defaultCards = [
     description: 'Notes about JS.',
     tags: ['JavaScript', 'code'],
     decks: [],
+    type: 'text',
   },
 ];
 
@@ -132,8 +134,12 @@ export default function App() {
     setQuickAddInitial(s.title);
   };
 
-  const handleLinkCreate = (from, to) => {
-    setLinks(prev => [...prev, { id: Date.now().toString(), from, to }]);
+  const handleLinkCreate = (from, to, type) => {
+    setLinks(prev => [...prev, { id: Date.now().toString(), from, to, type }]);
+  };
+
+  const handleLinkEdit = (id, type) => {
+    setLinks(prev => prev.map(l => (l.id === id ? { ...l, type } : l)));
   };
 
   const toggleWebSuggestions = () => {
@@ -160,7 +166,12 @@ export default function App() {
         </div>
         <QuickAdd onAdd={addCard} initial={quickAddInitial} />
         {showGraph ? (
-          <GraphView cards={cards} links={links} onLink={handleLinkCreate} />
+          <GraphView
+            cards={cards}
+            links={links}
+            onLink={handleLinkCreate}
+            onLinkEdit={handleLinkEdit}
+          />
         ) : (
           <CardGrid
             cards={filtered}

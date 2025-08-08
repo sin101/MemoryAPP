@@ -20,6 +20,7 @@ export default function QuickAdd({ onAdd, initial }) {
       setPending({
         title: text.slice(0, 20),
         description: text,
+        type: 'text',
         decks: parseDecks(decksInput),
       });
     }
