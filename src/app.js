@@ -15,6 +15,7 @@ class MemoryApp extends EventEmitter {
     this.links = new Map();
     this.linksByCard = new Map();
     this.tagIndex = new Map();
+    this.usageStats = new Map();
     this.nextId = 1;
     this.nextLinkId = 1;
     this.aiEnabled = true;
@@ -109,6 +110,16 @@ class MemoryApp extends EventEmitter {
     }
   }
 
+  async createAudioNote(sourcePath, options = {}) {
+    const transcript = await this.ai.transcribe(sourcePath);
+    const data = Object.assign({}, options, {
+      content: transcript,
+      source: sourcePath,
+      type: 'audio'
+    });
+    return this.createCard(data);
+  }
+
   async updateCard(cardId, data) {
     const card = this.cards.get(cardId);
     if (!card) {
@@ -172,6 +183,26 @@ class MemoryApp extends EventEmitter {
       }
     }
     return results;
+  }
+
+  recordCardUsage(cardId) {
+    const count = (this.usageStats.get(cardId) || 0) + 1;
+    this.usageStats.set(cardId, count);
+    this._updateFavoriteDeck();
+  }
+
+  _updateFavoriteDeck() {
+    const deck = this.getDeck('favorites');
+    deck.cards.clear();
+    const top = Array.from(this.usageStats.entries())
+      .sort((a, b) => b[1] - a[1])
+      .slice(0, 5);
+    for (const [id] of top) {
+      const card = this.cards.get(id);
+      if (card) {
+        deck.addCard(card);
+      }
+    }
   }
 
   _addToTagIndex(card) {
@@ -334,14 +365,14 @@ class MemoryApp extends EventEmitter {
     }
   }
 
-  createLink(fromId, toId, type = 'related') {
+  createLink(fromId, toId, type = 'related', annotation = '') {
     const from = this.cards.get(fromId);
     const to = this.cards.get(toId);
     if (!from || !to) {
       throw new Error('Both cards must exist to create a link');
     }
     const id = String(this.nextLinkId++);
-    const link = new Link({ id, from: fromId, to: toId, type });
+    const link = new Link({ id, from: fromId, to: toId, type, annotation });
     this.links.set(id, link);
     this._indexLink(link);
     this.emit('linkCreated', link);

@@ -27,6 +27,7 @@ const tagsInput = document.getElementById('new-tags');
 const apiKeyInput = document.getElementById('api-key');
 const summaryModelSelect = document.getElementById('summary-model');
 const imageModelSelect = document.getElementById('image-model');
+const recordBtn = document.getElementById('record-audio');
 
 apiKeyInput.value = localStorage.getItem('hfKey') || '';
 apiKeyInput.addEventListener('input', () =>
@@ -253,6 +254,42 @@ addForm.addEventListener('submit', async e => {
   showThemeSuggestions();
   addForm.reset();
 });
+
+if (recordBtn) {
+  let mediaRecorder = null;
+  let chunks = [];
+  recordBtn.addEventListener('click', async () => {
+    if (!mediaRecorder) {
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      mediaRecorder = new MediaRecorder(stream);
+      mediaRecorder.ondataavailable = e => chunks.push(e.data);
+      mediaRecorder.onstop = async () => {
+        const blob = new Blob(chunks, { type: 'audio/webm' });
+        chunks = [];
+        const base64 = await new Promise(res => {
+          const reader = new FileReader();
+          reader.onload = () => res(reader.result.split(',')[1]);
+          reader.readAsDataURL(blob);
+        });
+        const response = await fetch('/api/audio-note', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ audio: base64 })
+        });
+        const card = await response.json();
+        cards.push(card);
+        saveCards();
+        renderCards();
+      };
+      mediaRecorder.start();
+      recordBtn.textContent = 'Stop';
+    } else {
+      mediaRecorder.stop();
+      mediaRecorder = null;
+      recordBtn.textContent = 'Record Audio Note';
+    }
+  });
+}
 
 renderCards();
 showThemeSuggestions();
