@@ -2,6 +2,7 @@ const assert = require('assert');
 const fs = require('fs');
 const MemoryApp = require('./src/app');
 const { fetchSuggestion } = require('./src/suggestions');
+const { SimpleAI } = require('./src/ai');
 
 (async () => {
   const app = new MemoryApp();
@@ -51,6 +52,9 @@ const { fetchSuggestion } = require('./src/suggestions');
   const extraLink = app.createLink(extra.id, card.id, 'relates');
   assert.strictEqual(app.getLinks(extra.id)[0].id, extraLink.id, 'Link should be retrievable from extra card');
 
+  const annotated = app.createLink(second.id, extra.id, 'relates', 'cross-ref');
+  assert.strictEqual(annotated.annotation, 'cross-ref', 'Link should store annotation');
+
   let removedEvents = 0;
   const onLinkRemoved = () => { removedEvents += 1; };
   app.on('linkRemoved', onLinkRemoved);
@@ -62,11 +66,12 @@ const { fetchSuggestion } = require('./src/suggestions');
   assert.strictEqual(app.cards.size, 2, 'Card count should be 2 after removal');
   assert.ok(!app.decks.get('general').cards.has(card.id), 'Deck should no longer contain removed card');
   assert.ok(!app.decks.get('secondary').cards.has(card.id), 'All decks should remove the card');
-  assert.strictEqual(app.getLinks(second.id).length, 0, 'Links involving removed card should be cleaned up');
-  assert.strictEqual(app.getLinks(extra.id).length, 0, 'All links involving removed card should be cleaned up');
+  assert.strictEqual(app.getLinks(second.id).length, 1, 'Remaining links should persist after unrelated card removal');
+  assert.strictEqual(app.getLinks(extra.id).length, 1, 'Links not involving removed card should persist');
 
   app.removeCard(extra.id);
   assert.strictEqual(app.cards.size, 1, 'Card count should be 1 after cleanup');
+  assert.strictEqual(app.getLinks(second.id).length, 0, 'Links should be cleaned after removing linked card');
 
   const updated = await app.updateCard(second.id, { title: 'Second updated', tags: ['edited'] });
   assert.strictEqual(updated.title, 'Second updated', 'Card title should be updated');
@@ -311,6 +316,23 @@ const { fetchSuggestion } = require('./src/suggestions');
   fs.unlinkSync(linkFile);
   const thirdLink = reloaded.createLink(c1.id, c3.id, 'relates');
   assert.strictEqual(thirdLink.id, '3', 'Link ID should continue after reload');
+
+  // Audio note creation with transcription
+  const transAI = new SimpleAI();
+  transAI.transcribe = async () => 'spoken words';
+  const audioApp = new MemoryApp({ ai: transAI });
+  const audioCard = await audioApp.createAudioNote('note.webm', { title: 'Voice' });
+  assert.strictEqual(audioCard.content, 'spoken words', 'Audio note should transcribe content');
+  assert.strictEqual(audioCard.type, 'audio', 'Audio note should have audio type');
+
+  // Favorite deck from usage stats
+  const usageApp = new MemoryApp();
+  const u1 = await usageApp.createCard({ title: 'U1', content: '' });
+  const u2 = await usageApp.createCard({ title: 'U2', content: '' });
+  usageApp.recordCardUsage(u1.id);
+  usageApp.recordCardUsage(u1.id);
+  usageApp.recordCardUsage(u2.id);
+  assert.ok(usageApp.getDeck('favorites').cards.has(u1.id), 'Most used card should be favorite');
 
   // Suggestion filtering of null results
   delete require.cache[require.resolve('./src/app')];
