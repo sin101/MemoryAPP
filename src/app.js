@@ -3,7 +3,7 @@ const Deck = require('./deck');
 const Link = require('./link');
 const fs = require('fs');
 const MemoryDB = require('./db');
-const { SimpleAI, HuggingFaceAI } = require('./ai');
+const { SimpleAI, HuggingFaceAI, TransformersAI, hasLocalModels } = require('./ai');
 const EventEmitter = require('events');
 const { fetchSuggestion } = require('./suggestions');
 
@@ -23,6 +23,8 @@ class MemoryApp extends EventEmitter {
     this.backgroundProcessing = !!options.backgroundProcessing;
     if (options.ai) {
       this.ai = options.ai;
+    } else if (hasLocalModels()) {
+      this.ai = new TransformersAI();
     } else if (process.env.HUGGINGFACE_API_KEY) {
       this.ai = new HuggingFaceAI({ autoSelect: true });
     } else {
