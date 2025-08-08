@@ -5,7 +5,10 @@
   "main": "src/app.js",
   "scripts": {
     "test": "node test.js",
-    "start": "node src/server.js"
+    "start": "node src/server.js",
+    "frontend:dev": "npm run dev --prefix frontend",
+    "frontend:build": "npm run build --prefix frontend",
+    "frontend:preview": "npm run preview --prefix frontend"
   },
   "keywords": [],
   "author": "",

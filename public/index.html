@@ -21,6 +21,7 @@
         <option value="runwayml/stable-diffusion-v1-5">SD 1.5</option>
       </select>
       <input type="search" id="search" placeholder="Search cards..." />
+      <button id="view-toggle">Graph View</button>
       <button id="theme-toggle" aria-label="Toggle dark mode">🌙</button>
     </div>
   </header>
@@ -34,7 +35,12 @@
     <button id="record-audio">Record Audio Note</button>
   </section>
   <main class="layout">
+    <aside id="deck-sidebar">
+      <h2>Decks</h2>
+      <ul id="deck-list"></ul>
+    </aside>
     <div id="cards" class="card-grid"></div>
+    <div id="graph" class="graph-view hidden"></div>
     <aside id="suggestions">
       <h2>Suggestions</h2>
       <ul id="suggestion-list"></ul>

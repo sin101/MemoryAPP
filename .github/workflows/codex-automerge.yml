@@ -1,0 +1,30 @@
+name: Codex PR Auto-merge
+
+on:
+  pull_request:
+    types: [opened, reopened, synchronize, ready_for_review, labeled]
+    branches: [main]
+
+permissions:
+  pull-requests: write
+  contents: write
+
+jobs:
+  auto_merge:
+    # Only for non-draft PRs authored by sin101 OR PRs labeled "automerge"
+    if: |
+      !github.event.pull_request.draft &&
+      (
+        github.event.pull_request.user.login == 'sin101' ||
+        contains(github.event.pull_request.labels.*.name, 'automerge')
+      )
+    runs-on: ubuntu-latest
+    steps:
+      - name: Enable auto-merge (squash) and delete branch when ready
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+        run: |
+          # Sets GitHub's native auto-merge. It will wait for required checks/approvals,
+          # then squash-merge and delete the head branch automatically.
+          gh pr merge "$PR_NUMBER" --auto --squash --delete-branch
