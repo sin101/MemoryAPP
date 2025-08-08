@@ -25,6 +25,16 @@ window.YT_API_KEY = 'your-key-here';
 
 If no key is present, the demo will prompt for one when a YouTube request is made.
 
+### Logging
+
+Logging is disabled by default. Set `ENABLE_LOGS=true` in the environment to enable log collection. Logs are written locally to `logs/app.log` and never sent elsewhere automatically. To share logs with support, copy them to a separate file manually:
+
+```
+node -e "require('./src/logger').exportLogs('support.log')"
+```
+
+This exports the current log file to `support.log`, which you can send yourself if needed.
+
 ### Running tests
 
 ```

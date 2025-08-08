@@ -1,6 +1,7 @@
 const http = require('http');
 const fs = require('fs');
 const MemoryApp = require('./app');
+const logger = require('./logger');
 
 const app = new MemoryApp();
 
@@ -18,10 +19,12 @@ function json(req, callback) {
 }
 
 const server = http.createServer((req, res) => {
+  logger.log(`${req.method} ${req.url}`);
   if (req.method === 'POST' && req.url === '/api/cards') {
     json(req, async (err, data) => {
       if (err) {
         res.writeHead(400);
+        logger.log('Invalid JSON payload');
         return res.end('Invalid JSON');
       }
       try {
@@ -30,6 +33,7 @@ const server = http.createServer((req, res) => {
         res.end(JSON.stringify(card));
       } catch (e) {
         res.writeHead(500);
+        logger.log(`Error creating card: ${e.message}`);
         res.end(e.message);
       }
     });
@@ -37,6 +41,7 @@ const server = http.createServer((req, res) => {
     json(req, async (err, data) => {
       if (err || !data.audio) {
         res.writeHead(400);
+        logger.log('Invalid audio payload');
         return res.end('Invalid payload');
       }
       try {
@@ -48,6 +53,7 @@ const server = http.createServer((req, res) => {
         fs.unlink(file, () => {});
       } catch (e) {
         res.writeHead(500);
+        logger.log(`Error creating audio note: ${e.message}`);
         res.end(e.message);
       }
     });
