@@ -1,0 +1,27 @@
+name: Codex PR Auto-merge
+
+on:
+  pull_request:
+    types: [opened, reopened, synchronize, ready_for_review, labeled]
+    branches: [main]
+
+permissions:
+  pull-requests: write
+  contents: write
+
+jobs:
+  auto_merge_codex:
+    # Merge if PR author is your Codex bot OR if you add label `automerge`
+    if: |
+      github.event.pull_request.user.login == 'codex-bot' ||
+      contains(github.event.pull_request.labels.*.name, 'automerge')
+    runs-on: ubuntu-latest
+    steps:
+      - name: Enable auto-merge (squash) and delete branch when ready
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+        run: |
+          # This sets GitHub's Auto-merge for the PR.
+          # It waits for required checks/approvals, then merges automatically.
+          gh pr merge "$PR_NUMBER" --auto --squash --delete-branch
