@@ -22,4 +22,6 @@ jobs:
         run: |
           # Sets GitHub's native auto-merge. It will wait for required checks/approvals,
           # then squash-merge and delete the head branch automatically.
+          - name: Checkout repository
+          uses: actions/checkout@v4
           gh pr merge "$PR_NUMBER" --auto --squash --delete-branch
