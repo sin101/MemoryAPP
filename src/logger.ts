@@ -1,19 +1,24 @@
-const fs = require('fs');
+import fs from 'fs';
 
 class Logger {
-  constructor(path) {
+  path: string;
+
+  constructor(path: string) {
     this.path = path;
   }
-  _write(level, msg) {
+
+  _write(level: string, msg: string) {
     const line = `[${new Date().toISOString()}] ${level}: ${msg}\n`;
     fs.appendFile(this.path, line, () => {});
   }
-  info(msg) {
+
+  info(msg: string) {
     this._write('INFO', msg);
   }
-  error(msg) {
+
+  error(msg: string) {
     this._write('ERROR', msg);
   }
 }
 
-module.exports = Logger;
+export default Logger;

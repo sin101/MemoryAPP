@@ -1,15 +1,16 @@
-const Card = require('./card');
-const Deck = require('./deck');
-const Link = require('./link');
-const fs = require('fs');
-const path = require('path');
-const MemoryDB = require('./db');
-const { SimpleAI, HuggingFaceAI, TransformersAI, hasLocalModels } = require('./ai');
-const EventEmitter = require('events');
-const { fetchSuggestion } = require('./suggestions');
-const crypto = require('crypto');
-const JSZip = require('jszip');
-const Logger = require('./logger');
+// @ts-nocheck
+import Card from './card.js';
+import Deck from './deck.js';
+import Link from './link.js';
+import fs from 'fs';
+import path from 'path';
+import MemoryDB from './db.js';
+import { SimpleAI, HuggingFaceAI, TransformersAI, hasLocalModels } from './ai.js';
+import { EventEmitter } from 'events';
+import { fetchSuggestion } from './suggestions.js';
+import crypto from 'crypto';
+import JSZip from 'jszip';
+import Logger from './logger.js';
 
 class MemoryApp extends EventEmitter {
   constructor(options = {}) {
@@ -150,7 +151,7 @@ class MemoryApp extends EventEmitter {
     const transcript = await this.ai.transcribe(sourcePath);
     const buffer = await fs.promises.readFile(sourcePath);
     const stored = await this.saveMedia(buffer, path.basename(sourcePath));
-    fs.unlink(sourcePath, () => {});
+    await fs.promises.unlink(sourcePath).catch(() => {});
     const data = Object.assign({}, options, {
       content: transcript,
       source: stored,
@@ -163,7 +164,7 @@ class MemoryApp extends EventEmitter {
     const transcript = await this.ai.transcribe(sourcePath);
     const buffer = await fs.promises.readFile(sourcePath);
     const stored = await this.saveMedia(buffer, path.basename(sourcePath));
-    fs.unlink(sourcePath, () => {});
+    await fs.promises.unlink(sourcePath).catch(() => {});
     const data = Object.assign({}, options, {
       content: transcript,
       source: stored,
@@ -188,6 +189,16 @@ class MemoryApp extends EventEmitter {
   }
 
   async _processAndPersistCard(card) {
+    if (!card.embedding && this.aiEnabled && this.ai.embed) {
+      const basis = card.content || card.source || card.title || '';
+      if (basis) {
+        try {
+          card.embedding = await this.ai.embed(basis);
+        } catch (e) {
+          this.emit('error', e);
+        }
+      }
+    }
     if (this.aiEnabled) {
       this.enrichCard(card.id);
       if (this.backgroundProcessing) {
@@ -246,12 +257,8 @@ class MemoryApp extends EventEmitter {
     const qVec = await this.ai.embed(query);
     const scored = [];
     for (const card of this.cards.values()) {
-      const basis = card.content || card.source || card.title || '';
-      if (!basis) {
-        continue;
-      }
       if (!card.embedding) {
-        card.embedding = await this.ai.embed(basis);
+        continue;
       }
       const sim = cosine(qVec, card.embedding);
       if (sim > 0) {
@@ -802,8 +809,9 @@ class MemoryApp extends EventEmitter {
         description: card.description,
         createdAt: card.createdAt,
         summary: card.summary,
-        illustration: card.illustration,
-      })),
+      illustration: card.illustration,
+      embedding: card.embedding,
+    })),
       decks: Array.from(this.decks.values()).map(deck => ({
         name: deck.name,
         cards: Array.from(deck.cards),
@@ -988,4 +996,4 @@ class MemoryApp extends EventEmitter {
   }
 }
 
-module.exports = MemoryApp;
+export default MemoryApp;

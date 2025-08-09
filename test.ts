@@ -1,7 +1,8 @@
+// @ts-nocheck
 const assert = require('assert');
 const fs = require('fs');
-const MemoryApp = require('./src/app');
-const { fetchSuggestion } = require('./src/suggestions');
+const MemoryApp = require('./src/app').default;
+const { fetchSuggestion, clearSuggestionCache } = require('./src/suggestions');
 const { SimpleAI } = require('./src/ai');
 
 (async () => {
@@ -304,6 +305,7 @@ const { SimpleAI } = require('./src/ai');
   // Web suggestions
   const suggestApp = new MemoryApp({ ai: new SimpleAI() });
   await suggestApp.createCard({ title: 'JS', content: '', tags: ['JavaScript', 'code'] });
+  clearSuggestionCache();
   const originalFetch = global.fetch;
   let fetchCalls = 0;
   global.fetch = async () => {
@@ -491,7 +493,7 @@ usageApp.removeAllListeners('cardUpdated');
         : { tag, title: tag, description: '', url: '', source: 'test' }
     }
   };
-  const FilterApp = require('./src/app');
+  const FilterApp = require('./src/app').default;
   const filterApp = new FilterApp();
   const filterCard = await filterApp.createCard({ title: 'Filter', content: '', tags: ['nulltag', 'good'] });
   const cardFiltered = await filterApp.getCardSuggestions(filterCard.id, 5);

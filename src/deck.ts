@@ -1,18 +1,21 @@
 class Deck {
-  constructor(name) {
+  name: string;
+  cards: Set<string>;
+
+  constructor(name: string) {
     this.name = name.toLowerCase();
     this.cards = new Set();
   }
 
-  addCard(card) {
+  addCard(card: any) {
     this.cards.add(card.id);
     card.addDeck(this.name);
   }
 
-  removeCard(card) {
+  removeCard(card: any) {
     this.cards.delete(card.id);
     card.decks.delete(this.name);
   }
 }
 
-module.exports = Deck;
+export default Deck;
