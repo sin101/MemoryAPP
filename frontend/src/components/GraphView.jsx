@@ -7,6 +7,13 @@ export default function GraphView({ cards, links, onLink, onLinkEdit, cardBg, ca
   const [deckFilter, setDeckFilter] = useState('');
   const [tagFilter, setTagFilter] = useState('');
   const [linkFilter, setLinkFilter] = useState('');
+  const [positions, setPositions] = useState(() => {
+    try {
+      return JSON.parse(localStorage.getItem('graph-positions') || '{}');
+    } catch {
+      return {};
+    }
+  });
 
   const filtered = useMemo(
     () =>
@@ -22,7 +29,7 @@ export default function GraphView({ cards, links, onLink, onLinkEdit, cardBg, ca
     () =>
       filtered.map(c => ({
         id: c.id,
-        position: { x: Math.random() * 400, y: Math.random() * 400 },
+        position: positions[c.id] || { x: Math.random() * 400, y: Math.random() * 400 },
         data: {
           label: `${c.title}${c.decks?.length > 1 ? ' 🔁' : ''}`,
         },
@@ -33,7 +40,7 @@ export default function GraphView({ cards, links, onLink, onLinkEdit, cardBg, ca
           background: cardBg
         }
       })),
-    [filtered, cardBg, cardBorder]
+    [filtered, cardBg, cardBorder, positions]
   );
   const edges = useMemo(
     () =>
@@ -75,6 +82,19 @@ export default function GraphView({ cards, links, onLink, onLinkEdit, cardBg, ca
   const deckOptions = Array.from(new Set(cards.flatMap(c => c.decks || [])));
   const tagOptions = Array.from(new Set(cards.flatMap(c => c.tags || [])));
   const linkTypeOptions = Array.from(new Set((links || []).map(l => l.type).filter(Boolean)));
+
+  const handleNodesChange = useCallback(changes => {
+    setPositions(pos => {
+      const next = { ...pos };
+      changes.forEach(ch => {
+        if (ch.type === 'position' && ch.position) {
+          next[ch.id] = ch.position;
+        }
+      });
+      localStorage.setItem('graph-positions', JSON.stringify(next));
+      return next;
+    });
+  }, []);
 
   return (
     <div>
@@ -122,6 +142,7 @@ export default function GraphView({ cards, links, onLink, onLinkEdit, cardBg, ca
           edges={edges}
           onConnect={handleConnect}
           onEdgeClick={handleEdgeClick}
+          onNodesChange={handleNodesChange}
           fitView
         >
           <Background />

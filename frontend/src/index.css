@@ -1,3 +1,18 @@
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
+
+:root {
+  --accent-color: #3b82f6;
+  --text-color: #000000;
+  --font-family: sans-serif;
+}
+
+body {
+  color: var(--text-color);
+  font-family: var(--font-family);
+}
+
+a {
+  color: var(--accent-color);
+}

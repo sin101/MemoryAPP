@@ -16,6 +16,11 @@ class MemoryDB {
     )`);
     this.deleteStmt = this.db.prepare('DELETE FROM cards WHERE id = ?');
     this.loadStmt = this.db.prepare('SELECT * FROM cards');
+    this.linkSaveStmt = this.db.prepare(
+      'INSERT OR REPLACE INTO links (id, fromId, toId, type, annotation) VALUES (@id, @from, @to, @type, @annotation)'
+    );
+    this.linkDeleteStmt = this.db.prepare('DELETE FROM links WHERE id = ?');
+    this.linkLoadStmt = this.db.prepare('SELECT * FROM links');
   }
 
   init() {
@@ -32,7 +37,15 @@ class MemoryDB {
       summary TEXT,
       illustration TEXT
     )`;
+    const linkSql = `CREATE TABLE IF NOT EXISTS links (
+      id TEXT PRIMARY KEY,
+      fromId TEXT,
+      toId TEXT,
+      type TEXT,
+      annotation TEXT
+    )`;
     this.db.exec(sql);
+    this.db.exec(linkSql);
   }
 
   saveCard(card) {
@@ -69,6 +82,31 @@ class MemoryDB {
       summary: this.decrypt(r.summary),
       illustration: this.decrypt(r.illustration),
       source: this.decrypt(r.source)
+    }));
+  }
+
+  saveLink(link) {
+    this.linkSaveStmt.run({
+      id: link.id,
+      from: link.from,
+      to: link.to,
+      type: link.type,
+      annotation: this.encrypt(link.annotation || ''),
+    });
+  }
+
+  deleteLink(id) {
+    this.linkDeleteStmt.run(id);
+  }
+
+  loadLinks() {
+    const rows = this.linkLoadStmt.all();
+    return rows.map(r => ({
+      id: r.id,
+      from: r.fromId,
+      to: r.toId,
+      type: r.type,
+      annotation: this.decrypt(r.annotation),
     }));
   }
 
