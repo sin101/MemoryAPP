@@ -11,6 +11,8 @@ class Card {
     createdAt = new Date().toISOString(),
     summary = '',
     illustration = '',
+    contentType = '',
+    duration = 0,
   }) {
     this.id = id;
     this.title = title;
@@ -23,6 +25,8 @@ class Card {
     this.createdAt = createdAt;
     this.summary = summary;
     this.illustration = illustration;
+    this.contentType = contentType;
+    this.duration = duration;
     this._updateSearchText();
   }
 
@@ -38,7 +42,7 @@ class Card {
     this.tags.delete(tag);
   }
 
-  update({ title, content, source, tags, description, type, summary, illustration }) {
+  update({ title, content, source, tags, description, type, summary, illustration, contentType, duration }) {
     if (title !== undefined) {
       this.title = title;
     }
@@ -63,6 +67,12 @@ class Card {
     if (illustration !== undefined) {
       this.illustration = illustration;
     }
+    if (contentType !== undefined) {
+      this.contentType = contentType;
+    }
+    if (duration !== undefined) {
+      this.duration = duration;
+    }
     this._updateSearchText();
   }
 
@@ -86,6 +96,8 @@ class Card {
       createdAt: this.createdAt,
       summary: this.summary,
       illustration: this.illustration,
+      contentType: this.contentType,
+      duration: this.duration,
     };
   }
 }

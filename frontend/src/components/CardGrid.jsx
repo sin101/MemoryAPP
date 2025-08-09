@@ -41,7 +41,15 @@ export default function CardGrid({ cards, onSelect, onEdit, onDelete, tagPalette
             <video src={card.video} controls className="mb-2" />
           )}
           {card.type === 'audio' && card.audio && (
-            <audio src={card.audio} controls className="mb-2 w-full" />
+            <div className="mb-2">
+              <audio src={card.audio} controls className="w-full" />
+              {card.contentType && (
+                <p className="text-sm text-gray-600">Format: {card.contentType}</p>
+              )}
+              {typeof card.duration === 'number' && card.duration > 0 && (
+                <p className="text-sm text-gray-600">Duration: {card.duration.toFixed(1)}s</p>
+              )}
+            </div>
           )}
           <p>{card.description}</p>
           {card.summary && <p className="text-sm text-gray-600">{card.summary}</p>}
