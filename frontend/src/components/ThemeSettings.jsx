@@ -9,6 +9,12 @@ export default function ThemeSettings({
   setCardBg,
   cardBorder,
   setCardBorder,
+  accent,
+  setAccent,
+  textColor,
+  setTextColor,
+  font,
+  setFont,
 }) {
   const [tag, setTag] = useState('');
   const [color, setColor] = useState('#ff0000');
@@ -38,6 +44,18 @@ export default function ThemeSettings({
         <input type="color" value={cardBg} onChange={e => setCardBg(e.target.value)} />
         <label>Border:</label>
         <input type="color" value={cardBorder} onChange={e => setCardBorder(e.target.value)} />
+      </div>
+      <div className="flex items-center space-x-2 mb-2">
+        <label>Accent:</label>
+        <input type="color" value={accent} onChange={e => setAccent(e.target.value)} />
+        <label>Text:</label>
+        <input type="color" value={textColor} onChange={e => setTextColor(e.target.value)} />
+        <label>Font:</label>
+        <select value={font} onChange={e => setFont(e.target.value)} className="border px-2">
+          <option value="sans-serif">Sans</option>
+          <option value="serif">Serif</option>
+          <option value="monospace">Mono</option>
+        </select>
       </div>
       <div className="flex items-center space-x-2 mb-2">
         <input

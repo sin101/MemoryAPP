@@ -4,6 +4,16 @@ const MemoryApp = require('./app');
 
 const ENC_KEY = process.env.ENCRYPTION_KEY || '';
 let app = new MemoryApp({ dbPath: process.env.DB_PATH, encryptionKey: ENC_KEY });
+const API_TOKEN = process.env.API_TOKEN || '';
+
+function checkAuth(req, res) {
+  if (!API_TOKEN) return true;
+  const auth = req.headers['authorization'] || '';
+  if (auth === `Bearer ${API_TOKEN}`) return true;
+  res.writeHead(401);
+  res.end('Unauthorized');
+  return false;
+}
 
 function json(req, callback) {
   let body = '';
@@ -36,6 +46,7 @@ const server = http.createServer((req, res) => {
       }
     });
   } else if (req.method === 'POST' && req.url === '/api/audio-note') {
+    if (!checkAuth(req, res)) return;
     json(req, async (err, data) => {
       if (err || !data.audio) {
         res.writeHead(400);
@@ -58,6 +69,7 @@ const server = http.createServer((req, res) => {
       }
     });
   } else if (req.method === 'POST' && req.url === '/api/video-note') {
+    if (!checkAuth(req, res)) return;
     json(req, async (err, data) => {
       if (err || !data.video) {
         res.writeHead(400);
@@ -76,6 +88,7 @@ const server = http.createServer((req, res) => {
       }
     });
   } else if (req.method === 'POST' && req.url === '/api/clip') {
+    if (!checkAuth(req, res)) return;
     json(req, async (err, data) => {
       if (err || !data.url) {
         res.writeHead(400);
@@ -144,9 +157,75 @@ const server = http.createServer((req, res) => {
         res.end(e.message);
       }
     });
+  } else if (req.method === 'POST' && req.url.match(/^\/api\/cards\/([^/]+)\/usage$/)) {
+    const id = req.url.match(/^\/api\/cards\/([^/]+)\/usage$/)[1];
+    app.recordCardUsage(id);
+    res.writeHead(200, { 'Content-Type': 'application/json' });
+    res.end(JSON.stringify({ ok: true }));
   } else if (req.method === 'GET' && req.url === '/api/cards') {
     res.writeHead(200, { 'Content-Type': 'application/json' });
     res.end(JSON.stringify(app.toJSON()));
+  } else if (req.url.startsWith('/api/links')) {
+    if (req.method === 'GET' && req.url === '/api/links') {
+      res.writeHead(200, { 'Content-Type': 'application/json' });
+      res.end(
+        JSON.stringify(
+          Array.from(app.links.values()).map(l => ({
+            id: l.id,
+            from: l.from,
+            to: l.to,
+            type: l.type,
+            annotation: l.annotation,
+          }))
+        )
+      );
+    } else if (req.method === 'POST' && req.url === '/api/links') {
+      json(req, (err, data) => {
+        if (err || !data.from || !data.to) {
+          res.writeHead(400);
+          return res.end('Invalid payload');
+        }
+        try {
+          const link = app.createLink(data.from, data.to, data.type, data.annotation);
+          res.writeHead(200, { 'Content-Type': 'application/json' });
+          res.end(JSON.stringify(link));
+        } catch (e) {
+          res.writeHead(500);
+          res.end(e.message);
+        }
+      });
+    } else {
+      const m = req.url.match(/^\/api\/links\/(\w+)/);
+      if (m) {
+        const id = m[1];
+        if (req.method === 'PUT') {
+          json(req, (err, data) => {
+            if (err) {
+              res.writeHead(400);
+              return res.end('Invalid payload');
+            }
+            try {
+              const link = app.updateLink(id, data);
+              res.writeHead(200, { 'Content-Type': 'application/json' });
+              res.end(JSON.stringify(link));
+            } catch (e) {
+              res.writeHead(500);
+              res.end(e.message);
+            }
+          });
+        } else if (req.method === 'DELETE') {
+          const ok = app.removeLink(id);
+          res.writeHead(ok ? 200 : 404, { 'Content-Type': 'application/json' });
+          res.end(JSON.stringify({ ok }));
+        } else {
+          res.writeHead(405);
+          res.end('Method not allowed');
+        }
+      } else {
+        res.writeHead(404);
+        res.end('Not found');
+      }
+    }
   } else if (req.method === 'GET' && req.url === '/api/export') {
     app.exportZipBuffer().then(buffer => {
       res.writeHead(200, { 'Content-Type': 'application/zip' });

@@ -68,6 +68,7 @@ class MemoryApp extends EventEmitter {
     this.emit('cardCreated', card);
     await this._processAndPersistCard(card);
     this._updateTagIndex(card);
+    this._updateSmartDecks();
     return card;
   }
 
@@ -182,6 +183,7 @@ class MemoryApp extends EventEmitter {
     this.emit('cardUpdated', card);
     await this._processAndPersistCard(card);
     this._updateTagIndex(card, oldTags);
+    this._updateSmartDecks();
     return card;
   }
 
@@ -272,24 +274,19 @@ class MemoryApp extends EventEmitter {
   }
 
   recordCardUsage(cardId) {
-    const count = (this.usageStats.get(cardId) || 0) + 1;
-    this.usageStats.set(cardId, count);
-    this._updateFavoriteDeck();
+    const stat = this.usageStats.get(cardId) || { count: 0, lastOpened: null };
+    stat.count++;
+    stat.lastOpened = Date.now();
+    this.usageStats.set(cardId, stat);
+    this._updateSmartDecks();
   }
 
-  _updateFavoriteDeck() {
-    const deck = this.getDeck('favorites');
-    const deckName = deck.name;
+  _setDeckCards(deckName, ids) {
+    const deck = this.getDeck(deckName);
     const oldIds = new Set(deck.cards);
-    const topIds = new Set(
-      Array.from(this.usageStats.entries())
-        .sort((a, b) => b[1] - a[1])
-        .slice(0, 5)
-        .map(([id]) => id)
-    );
     let changed = false;
     for (const id of oldIds) {
-      if (!topIds.has(id)) {
+      if (!ids.has(id)) {
         deck.cards.delete(id);
         const card = this.cards.get(id);
         if (card) {
@@ -306,7 +303,7 @@ class MemoryApp extends EventEmitter {
         changed = true;
       }
     }
-    for (const id of topIds) {
+    for (const id of ids) {
       if (!deck.cards.has(id)) {
         const card = this.cards.get(id);
         if (card) {
@@ -326,6 +323,74 @@ class MemoryApp extends EventEmitter {
     if (changed) {
       this.emit('deckUpdated', deck);
     }
+  }
+
+  _updateRecentDeck() {
+    const cutoff = Date.now() - 7 * 24 * 60 * 60 * 1000;
+    const ids = new Set();
+    for (const card of this.cards.values()) {
+      if (new Date(card.createdAt).getTime() >= cutoff) {
+        ids.add(card.id);
+      }
+    }
+    this._setDeckCards('recent', ids);
+  }
+
+  _updateFrequentDeck() {
+    const ids = new Set(
+      Array.from(this.usageStats.entries())
+        .sort((a, b) => (b[1].count || 0) - (a[1].count || 0))
+        .slice(0, 5)
+        .map(([id]) => id)
+    );
+    this._setDeckCards('frequent', ids);
+  }
+
+  _updateUnseenDeck() {
+    const ids = new Set();
+    for (const card of this.cards.values()) {
+      const stat = this.usageStats.get(card.id);
+      if (!stat || stat.count === 0) {
+        ids.add(card.id);
+      }
+    }
+    this._setDeckCards('unseen', ids);
+  }
+
+  _updateStaleDeck() {
+    const cutoff = Date.now() - 30 * 24 * 60 * 60 * 1000;
+    const ids = new Set();
+    for (const card of this.cards.values()) {
+      const stat = this.usageStats.get(card.id);
+      if (!stat || !stat.lastOpened || stat.lastOpened < cutoff) {
+        ids.add(card.id);
+      }
+    }
+    this._setDeckCards('stale', ids);
+  }
+
+  _updateTagDecks() {
+    for (const [tag, set] of this.tagIndex.entries()) {
+      const deckName = `tag:${tag}`;
+      if (set.size >= 3) {
+        this._setDeckCards(deckName, set);
+      } else if (this.decks.has(deckName)) {
+        this.removeDeck(deckName);
+      }
+    }
+    for (const name of Array.from(this.decks.keys())) {
+      if (name.startsWith('tag:') && !this.tagIndex.has(name.slice(4))) {
+        this.removeDeck(name);
+      }
+    }
+  }
+
+  _updateSmartDecks() {
+    this._updateRecentDeck();
+    this._updateFrequentDeck();
+    this._updateUnseenDeck();
+    this._updateStaleDeck();
+    this._updateTagDecks();
   }
 
   _addToTagIndex(card) {
@@ -442,6 +507,7 @@ class MemoryApp extends EventEmitter {
         this.emit('error', e);
       }
     }
+    this._updateSmartDecks();
     return true;
   }
 
@@ -517,6 +583,13 @@ class MemoryApp extends EventEmitter {
     const link = new Link({ id, from: fromId, to: toId, type: normType, annotation });
     this.links.set(id, link);
     this._indexLink(link);
+    if (this.db) {
+      try {
+        this.db.saveLink(link);
+      } catch (e) {
+        this.emit('error', e);
+      }
+    }
     this.emit('linkCreated', link);
     return link;
   }
@@ -536,6 +609,13 @@ class MemoryApp extends EventEmitter {
       type: data.type !== undefined ? newType : undefined,
       annotation: data.annotation,
     });
+    if (this.db) {
+      try {
+        this.db.saveLink(link);
+      } catch (e) {
+        this.emit('error', e);
+      }
+    }
     this.emit('linkUpdated', link);
     return link;
   }
@@ -575,6 +655,13 @@ class MemoryApp extends EventEmitter {
     const res = this.links.delete(linkId);
     if (res && link) {
       this._unindexLink(link);
+      if (this.db) {
+        try {
+          this.db.deleteLink(linkId);
+        } catch (e) {
+          this.emit('error', e);
+        }
+      }
       this.emit('linkRemoved', link);
     }
     return res;
@@ -887,6 +974,17 @@ class MemoryApp extends EventEmitter {
         deck.cards.add(card.id);
       }
     }
+    const links = this.db.loadLinks();
+    for (const data of links) {
+      const link = new Link(data);
+      this.links.set(link.id, link);
+      this._indexLink(link);
+      const num = Number(link.id);
+      if (!Number.isNaN(num) && num >= this.nextLinkId) {
+        this.nextLinkId = num + 1;
+      }
+    }
+    this._updateSmartDecks();
   }
 }
 

@@ -37,11 +37,17 @@ async function flushQueue() {
   const headers = await getAuthHeaders();
   for (const data of queue) {
     try {
-      await fetch('http://localhost:3000/api/clip', {
+      const res = await fetch('http://localhost:3000/api/clip', {
         method: 'POST',
         headers,
         body: JSON.stringify(data)
       });
+      if (res.status === 401) {
+        alert('Unauthorized');
+        remaining.push(data);
+      } else if (!res.ok) {
+        remaining.push(data);
+      }
     } catch (e) {
       remaining.push(data);
     }
@@ -61,11 +67,16 @@ async function clip() {
   const data = { title: tab.title, url: tab.url, content: selection, screenshot };
   const headers = await getAuthHeaders();
   try {
-    await fetch('http://localhost:3000/api/clip', {
+    const res = await fetch('http://localhost:3000/api/clip', {
       method: 'POST',
       headers,
       body: JSON.stringify(data)
     });
+    if (res.status === 401) {
+      alert('Unauthorized');
+    } else if (!res.ok) {
+      throw new Error('Request failed');
+    }
   } catch (e) {
     const queue = await getQueue();
     queue.push(data);

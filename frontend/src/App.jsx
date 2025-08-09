@@ -79,6 +79,9 @@ export default function App() {
   const [tagPalette, setTagPalette] = useState({});
   const [cardBg, setCardBg] = useState('#ffffff');
   const [cardBorder, setCardBorder] = useState('#d1d5db');
+  const [accent, setAccent] = useState('#3b82f6');
+  const [textColor, setTextColor] = useState('#000000');
+  const [font, setFont] = useState('sans-serif');
   const importRef = useRef();
   const loadCards = async () => {
     const db = await dbPromise;
@@ -199,7 +202,20 @@ export default function App() {
     });
     get('cardBg').then(c => c && setCardBg(c));
     get('cardBorder').then(c => c && setCardBorder(c));
+    get('accent').then(c => c && setAccent(c));
+    get('textColor').then(c => c && setTextColor(c));
+    get('font').then(f => f && setFont(f));
   }, []);
+
+  useEffect(() => {
+    document.documentElement.style.setProperty('--accent-color', accent);
+  }, [accent]);
+  useEffect(() => {
+    document.documentElement.style.setProperty('--text-color', textColor);
+  }, [textColor]);
+  useEffect(() => {
+    document.documentElement.style.setProperty('--font-family', font);
+  }, [font]);
 
   useEffect(() => {
     async function init() {
@@ -295,9 +311,9 @@ export default function App() {
     setSelected(card);
     setUsage(prev => {
       const next = { ...prev, [card.id]: (prev[card.id] || 0) + 1 };
-      saveUsage(next);
       return next;
     });
+    fetch(`/api/cards/${card.id}/usage`, { method: 'POST' }).catch(() => {});
   };
 
   const addCard = data => {
@@ -379,19 +395,37 @@ export default function App() {
   };
 
   const handleLinkCreate = (from, to, type, annotation) => {
-    setLinks(prev => {
-      const next = [...prev, { id: Date.now().toString(), from, to, type, annotation }];
-      saveLinks(next);
-      return next;
-    });
+    fetch('/api/links', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ from, to, type, annotation })
+    })
+      .then(r => r.json())
+      .then(link => {
+        setLinks(prev => {
+          const next = [...prev, link];
+          saveLinks(next);
+          return next;
+        });
+      })
+      .catch(err => console.error(err));
   };
 
   const handleLinkEdit = (id, type, annotation) => {
-    setLinks(prev => {
-      const next = prev.map(l => (l.id === id ? { ...l, type, annotation } : l));
-      saveLinks(next);
-      return next;
-    });
+    fetch(`/api/links/${id}`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ type, annotation })
+    })
+      .then(r => r.json())
+      .then(link => {
+        setLinks(prev => {
+          const next = prev.map(l => (l.id === id ? link : l));
+          saveLinks(next);
+          return next;
+        });
+      })
+      .catch(err => console.error(err));
   };
 
   const toggleWebSuggestions = () => {
@@ -410,23 +444,7 @@ export default function App() {
   };
 
   useEffect(() => {
-    const top = Object.entries(usage)
-      .sort((a, b) => b[1] - a[1])
-      .slice(0, 5)
-      .map(([id]) => id);
-    setCards(prev => {
-      const next = prev.map(c => {
-        const decks = new Set(c.decks || []);
-        if (top.includes(c.id)) {
-          decks.add('favorites');
-        } else {
-          decks.delete('favorites');
-        }
-        return { ...c, decks: Array.from(decks) };
-      });
-      saveCards(next);
-      return next;
-    });
+    saveUsage(usage);
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [usage]);
 
@@ -528,6 +546,21 @@ export default function App() {
           setCardBorder={c => {
             setCardBorder(c);
             set('cardBorder', c);
+          }}
+          accent={accent}
+          setAccent={c => {
+            setAccent(c);
+            set('accent', c);
+          }}
+          textColor={textColor}
+          setTextColor={c => {
+            setTextColor(c);
+            set('textColor', c);
+          }}
+          font={font}
+          setFont={f => {
+            setFont(f);
+            set('font', f);
           }}
         />
         <QuickAdd onAdd={addCard} initial={quickAddInitial} aiEnabled={aiEnabled} />
