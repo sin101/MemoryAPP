@@ -9,7 +9,7 @@
     "frontend:dev": "npm run dev --prefix frontend",
     "frontend:build": "npm run build --prefix frontend",
     "frontend:preview": "npm run preview --prefix frontend",
-    "desktop:pack": "npm run frontend:build && npm run build --prefix desktop"
+    "desktop:build": "npm run frontend:build && npm run build --prefix desktop"
   },
   "keywords": [],
   "author": "",
