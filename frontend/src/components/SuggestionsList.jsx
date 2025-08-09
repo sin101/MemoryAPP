@@ -9,40 +9,31 @@ export default function SuggestionsList({ card, cards = [], enabled = true, onAd
       setSuggestions([]);
       return;
     }
+    const controller = new AbortController();
     async function load() {
-      const results = [];
-      if (card) {
-        for (const tag of card.tags) {
-          try {
-            const s = await fetchSuggestion(tag);
-            results.push(s);
-          } catch (err) {
-            console.error('suggestion failed', err);
-          }
-        }
-      } else {
-        const tagCounts = {};
-        cards.forEach(c =>
-          c.tags.forEach(t => {
-            tagCounts[t] = (tagCounts[t] || 0) + 1;
-          })
-        );
-        const topTags = Object.entries(tagCounts)
-          .sort((a, b) => b[1] - a[1])
-          .slice(0, 3)
-          .map(([t]) => t);
-        for (const tag of topTags) {
-          try {
-            const s = await fetchSuggestion(tag);
-            results.push(s);
-          } catch (err) {
-            console.error('suggestion failed', err);
-          }
-        }
-      }
-      setSuggestions(results);
+      const tags = card
+        ? Array.from(card.tags)
+        : (() => {
+            const tagCounts = {};
+            cards.forEach(c =>
+              c.tags.forEach(t => {
+                tagCounts[t] = (tagCounts[t] || 0) + 1;
+              })
+            );
+            return Object.entries(tagCounts)
+              .sort((a, b) => b[1] - a[1])
+              .slice(0, 3)
+              .map(([t]) => t);
+          })();
+      const tasks = tags.map(t => fetchSuggestion(t, 'text', controller.signal));
+      const results = await Promise.allSettled(tasks);
+      const collected = results
+        .filter(r => r.status === 'fulfilled' && r.value)
+        .map(r => r.value);
+      setSuggestions(collected);
     }
     load();
+    return () => controller.abort();
   }, [card, cards, enabled]);
 
   if (!enabled) {

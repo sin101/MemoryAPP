@@ -358,9 +358,10 @@ class MemoryApp extends EventEmitter {
     this._updateSmartDecks();
   }
 
-  _setDeckCards(deckName: string, ids: Set<string>) {
+  async _setDeckCards(deckName: string, ids: Set<string>) {
     const deck = this.getDeck(deckName);
     const oldIds = new Set(deck.cards);
+    const ops: Promise<any>[] = [];
     let changed = false;
     for (const id of oldIds) {
       if (!ids.has(id)) {
@@ -370,7 +371,7 @@ class MemoryApp extends EventEmitter {
           card.decks.delete(deckName);
           this.emit('cardUpdated', card);
           if (this.db) {
-            this.db.saveCard(card).catch(e => this.emit('error', e));
+            ops.push(this.db.saveCard(card));
           }
         }
         changed = true;
@@ -383,14 +384,17 @@ class MemoryApp extends EventEmitter {
           deck.addCard(card);
           this.emit('cardUpdated', card);
           if (this.db) {
-            try {
-              this.db.saveCard(card).catch(e => this.emit('error', e));
-            } catch (e) {
-              this.emit('error', e);
-            }
+            ops.push(this.db.saveCard(card));
           }
         }
         changed = true;
+      }
+    }
+    if (this.db && ops.length) {
+      try {
+        await Promise.all(ops);
+      } catch (e) {
+        this.emit('error', e);
       }
     }
     if (changed) {
@@ -962,12 +966,13 @@ class MemoryApp extends EventEmitter {
   }
 
   async saveEncryptedToFile(path, password) {
-    const iv = crypto.randomBytes(16);
+    const iv = crypto.randomBytes(12);
     const key = crypto.createHash('sha256').update(password).digest();
-    const cipher = crypto.createCipheriv('aes-256-ctr', key, iv);
+    const cipher = crypto.createCipheriv('aes-256-gcm', key, iv);
     const json = Buffer.from(JSON.stringify(this.toJSON()));
-    const encrypted = Buffer.concat([iv, cipher.update(json), cipher.final()]);
-    await fs.promises.writeFile(path, encrypted);
+    const encrypted = Buffer.concat([cipher.update(json), cipher.final()]);
+    const tag = cipher.getAuthTag();
+    await fs.promises.writeFile(path, Buffer.concat([iv, tag, encrypted]));
   }
 
   async saveMedia(input, filename) {
@@ -985,11 +990,12 @@ class MemoryApp extends EventEmitter {
     }
     let data = input;
     if (this.encryptionKey) {
-      const iv = crypto.randomBytes(16);
+      const iv = crypto.randomBytes(12);
       const key = crypto.createHash('sha256').update(this.encryptionKey).digest();
-      const cipher = crypto.createCipheriv('aes-256-ctr', key, iv);
+      const cipher = crypto.createCipheriv('aes-256-gcm', key, iv);
       const encrypted = Buffer.concat([cipher.update(input), cipher.final()]);
-      data = Buffer.concat([iv, encrypted]);
+      const tag = cipher.getAuthTag();
+      data = Buffer.concat([iv, tag, encrypted]);
     }
     await fs.promises.writeFile(filePath, data);
     return filePath;
@@ -998,10 +1004,12 @@ class MemoryApp extends EventEmitter {
   async loadMedia(filePath) {
     let data = await fs.promises.readFile(filePath);
     if (this.encryptionKey) {
-      const iv = data.subarray(0, 16);
-      const encrypted = data.subarray(16);
+      const iv = data.subarray(0, 12);
+      const tag = data.subarray(12, 28);
+      const encrypted = data.subarray(28);
       const key = crypto.createHash('sha256').update(this.encryptionKey).digest();
-      const decipher = crypto.createDecipheriv('aes-256-ctr', key, iv);
+      const decipher = crypto.createDecipheriv('aes-256-gcm', key, iv);
+      decipher.setAuthTag(tag);
       data = Buffer.concat([decipher.update(encrypted), decipher.final()]);
     }
     return data;
@@ -1103,10 +1111,12 @@ class MemoryApp extends EventEmitter {
 
   static async loadEncryptedFromFile(path, password) {
     const data = await fs.promises.readFile(path);
-    const iv = data.slice(0, 16);
-    const encrypted = data.slice(16);
+    const iv = data.slice(0, 12);
+    const tag = data.slice(12, 28);
+    const encrypted = data.slice(28);
     const key = crypto.createHash('sha256').update(password).digest();
-    const decipher = crypto.createDecipheriv('aes-256-ctr', key, iv);
+    const decipher = crypto.createDecipheriv('aes-256-gcm', key, iv);
+    decipher.setAuthTag(tag);
     const json = Buffer.concat([decipher.update(encrypted), decipher.final()]).toString();
     return MemoryApp.fromJSON(JSON.parse(json));
   }
