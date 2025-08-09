@@ -82,12 +82,16 @@ const server = http.createServer((req, res) => {
         return res.end('Invalid payload');
       }
       try {
-        const card = await app.createCard({
+        const cardData = {
           title: data.title || data.url,
           source: data.url,
           content: data.content || '',
           type: 'link'
-        });
+        };
+        if (data.screenshot) {
+          cardData.illustration = data.screenshot;
+        }
+        const card = await app.createCard(cardData);
         res.writeHead(200, { 'Content-Type': 'application/json' });
         res.end(JSON.stringify(card));
       } catch (e) {

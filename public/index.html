@@ -24,6 +24,14 @@
       <input type="search" id="search" placeholder="Search cards..." />
       <button id="view-toggle">Graph View</button>
       <button id="theme-toggle" aria-label="Toggle dark mode">🌙</button>
+      <input type="color" id="accent-picker" aria-label="Accent color" />
+      <input type="color" id="bg-picker" aria-label="Background color" />
+      <input type="color" id="text-picker" aria-label="Text color" />
+      <select id="font-picker" aria-label="Font">
+        <option value="sans-serif">Sans</option>
+        <option value="serif">Serif</option>
+        <option value="monospace">Mono</option>
+      </select>
     </div>
   </header>
   <section id="add-card">
@@ -48,6 +56,7 @@
     </aside>
   </main>
   <script src="suggestions.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/d3@7/dist/d3.min.js"></script>
   <script src="app.js"></script>
 </body>
 </html>

@@ -5,7 +5,7 @@ const { fetchSuggestion } = require('./src/suggestions');
 const { SimpleAI } = require('./src/ai');
 
 (async () => {
-  const app = new MemoryApp();
+  const app = new MemoryApp({ ai: new SimpleAI() });
 
   const card = await app.createCard({
     title: 'First note',
@@ -15,6 +15,10 @@ const { SimpleAI } = require('./src/ai');
 
   assert.ok(card.summary, 'Card should have a summary');
   assert.ok(card.illustration, 'Card should have an illustration');
+  assert.ok(
+    card.illustration.startsWith('data:image'),
+    'Illustration should be a data URI'
+  );
 
   app.addCardToDeck(card.id, 'general');
   app.addCardToDeck(card.id, 'secondary');
@@ -85,7 +89,7 @@ const { SimpleAI } = require('./src/ai');
   assert.ok(!app.cards.get(second.id).decks.has('general'), 'Card should no longer list removed deck');
 
   // Searching cards missing title or content
-  const searchApp = new MemoryApp();
+  const searchApp = new MemoryApp({ ai: new SimpleAI() });
   searchApp.setAIEnabled(false);
   const titleOnly = await searchApp.createCard({ title: 'Title Only' });
   const contentOnly = await searchApp.createCard({ content: 'Content Only' });
@@ -93,7 +97,7 @@ const { SimpleAI } = require('./src/ai');
   assert.strictEqual(searchApp.searchByText('content')[0].id, contentOnly.id, 'Search should find card lacking title');
 
   // Generic content handling with source persistence
-  const mediaApp = new MemoryApp();
+  const mediaApp = new MemoryApp({ ai: new SimpleAI() });
   const mediaCard = await mediaApp.createCard({
     title: 'Photo',
     source: 'photo.png',
@@ -109,7 +113,7 @@ const { SimpleAI } = require('./src/ai');
   assert.strictEqual(loadedMedia.cards.get(mediaCard.id).source, 'photo.png', 'Source should persist through export');
 
   // AI enrichment and search on description
-  const aiApp = new MemoryApp();
+  const aiApp = new MemoryApp({ ai: new SimpleAI() });
   const aiCard = await aiApp.createCard({
     title: 'AI note',
     content: 'Graph theory algorithms'
@@ -147,13 +151,13 @@ const { SimpleAI } = require('./src/ai');
   assert.strictEqual(semFallback[0].id, semTarget.id, 'Fallback should use text search when AI disabled');
 
   // Chatbot query
-  const chatApp = new MemoryApp();
+  const chatApp = new MemoryApp({ ai: new SimpleAI() });
   await chatApp.createCard({ title: 'ChatRef', content: 'discussion topic' });
   const chatRefReply = await chatApp.chat('discussion');
   assert.ok(chatRefReply.includes('ChatRef'), 'Chat should reference matching card');
 
   // Performance/behavior with many cards
-  const manyApp = new MemoryApp();
+  const manyApp = new MemoryApp({ ai: new SimpleAI() });
   manyApp.setAIEnabled(false);
   const total = 500;
   for (let i = 0; i < total; i++) {
@@ -219,7 +223,7 @@ const { SimpleAI } = require('./src/ai');
   assert.strictEqual(customChat, 'custom reply', 'Custom chat should be used');
 
   // Web suggestions
-  const suggestApp = new MemoryApp();
+  const suggestApp = new MemoryApp({ ai: new SimpleAI() });
   await suggestApp.createCard({ title: 'JS', content: '', tags: ['JavaScript', 'code'] });
   const originalFetch = global.fetch;
   let fetchCalls = 0;
@@ -282,14 +286,14 @@ const { SimpleAI } = require('./src/ai');
   global.fetch = originalFetch;
 
   // Event order for create and update
-  const orderCreateApp = new MemoryApp();
+  const orderCreateApp = new MemoryApp({ ai: new SimpleAI() });
   const createEvents = [];
   orderCreateApp.on('cardCreated', () => createEvents.push('created'));
   orderCreateApp.on('cardProcessed', () => createEvents.push('processed'));
   await orderCreateApp.createCard({ title: 'Order', content: 'test' });
   assert.deepStrictEqual(createEvents, ['created', 'processed'], 'Create events should fire in order');
 
-  const orderUpdateApp = new MemoryApp();
+  const orderUpdateApp = new MemoryApp({ ai: new SimpleAI() });
   const updateCard = await orderUpdateApp.createCard({ title: 'Before', content: 'update' });
   const updateEvents = [];
   orderUpdateApp.on('cardUpdated', () => updateEvents.push('updated'));
@@ -298,7 +302,7 @@ const { SimpleAI } = require('./src/ai');
   assert.deepStrictEqual(updateEvents, ['updated', 'processed'], 'Update events should fire in order');
 
   // Event-driven background processing
-  const eventApp = new MemoryApp({ backgroundProcessing: true });
+  const eventApp = new MemoryApp({ backgroundProcessing: true, ai: new SimpleAI() });
   const createdPromise = new Promise(res => eventApp.once('cardCreated', res));
   const processedPromise = new Promise(res => eventApp.once('cardProcessed', res));
   const eventCard = await eventApp.createCard({ title: 'Async', content: 'background task' });
@@ -311,10 +315,10 @@ const { SimpleAI } = require('./src/ai');
 
   // Database persistence
   const dbFile = 'cards.db';
-  const dbApp1 = new MemoryApp({ dbPath: dbFile });
+  const dbApp1 = new MemoryApp({ dbPath: dbFile, ai: new SimpleAI() });
   const dbCard = await dbApp1.createCard({ title: 'DB', content: 'Stored in sqlite', source: 'dbsource.txt' });
   dbApp1.db.close();
-  const dbApp2 = new MemoryApp({ dbPath: dbFile });
+  const dbApp2 = new MemoryApp({ dbPath: dbFile, ai: new SimpleAI() });
   assert.ok(dbApp2.cards.has(dbCard.id), 'DB app should load existing card');
   assert.strictEqual(dbApp2.cards.get(dbCard.id).summary, dbCard.summary, 'Summary should persist in DB');
   assert.strictEqual(dbApp2.cards.get(dbCard.id).source, 'dbsource.txt', 'Source should persist in DB');
@@ -322,7 +326,7 @@ const { SimpleAI } = require('./src/ai');
   fs.unlinkSync(dbFile);
 
   // Link ID uniqueness after deletions and reload
-  const linkApp = new MemoryApp();
+  const linkApp = new MemoryApp({ ai: new SimpleAI() });
   const c1 = await linkApp.createCard({ title: 'A', content: '' });
   const c2 = await linkApp.createCard({ title: 'B', content: '' });
   const c3 = await linkApp.createCard({ title: 'C', content: '' });
@@ -353,7 +357,7 @@ const { SimpleAI } = require('./src/ai');
   assert.strictEqual(audioCard.duration, 0, 'Audio note should record duration');
 
   // Favorite deck from usage stats
-  const usageApp = new MemoryApp();
+  const usageApp = new MemoryApp({ ai: new SimpleAI() });
   const u1 = await usageApp.createCard({ title: 'U1', content: '' });
   const u2 = await usageApp.createCard({ title: 'U2', content: '' });
   usageApp.recordCardUsage(u1.id);
@@ -382,7 +386,7 @@ const { SimpleAI } = require('./src/ai');
   assert.strictEqual(themeFiltered[0].tag, 'good', 'Theme should include non-null suggestion');
 
   // Encrypted export/import
-  const encApp = new MemoryApp();
+  const encApp = new MemoryApp({ ai: new SimpleAI() });
   const encCard = await encApp.createCard({ title: 'Secret', content: 'hidden' });
   const encFile = 'secret.bin';
   await encApp.saveEncryptedToFile(encFile, 'pw');
@@ -391,7 +395,7 @@ const { SimpleAI } = require('./src/ai');
   assert.strictEqual(encLoaded.cards.get(encCard.id).content, 'hidden', 'Encrypted roundtrip should preserve content');
 
   // ZIP export/import
-  const zipApp = new MemoryApp();
+  const zipApp = new MemoryApp({ ai: new SimpleAI() });
   await zipApp.createCard({ title: 'ZipCard', content: 'zip' });
   await zipApp.saveMedia(Buffer.from('filedata'), 'file.txt');
   const zipFile = 'cards.zip';
@@ -408,6 +412,30 @@ const { SimpleAI } = require('./src/ai');
     importedBuf.cards.size,
     1,
     'Importing zip buffer should restore cards'
+  );
+
+  // Web clipper screenshot handling
+  const { server: clipServer, app: clipApp } = require('./src/server');
+  await new Promise(res => clipServer.listen(0, res));
+  const clipPort = clipServer.address().port;
+  await fetch(`http://localhost:${clipPort}/api/clip`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      url: 'http://example.com',
+      title: 'Example',
+      content: 'Example content',
+      screenshot:
+        'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAF/gL+HyCuAAAAAElFTkSuQmCC'
+    })
+  });
+  clipServer.close();
+  const clipCard = Array.from(clipApp.cards.values()).find(
+    c => c.source === 'http://example.com'
+  );
+  assert.ok(
+    clipCard.illustration.startsWith('data:image/png;base64,'),
+    'Clip should store screenshot as illustration'
   );
 
   console.log('All tests passed');
