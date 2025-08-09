@@ -2,6 +2,12 @@
 
 This repository contains a small prototype of a personal content manager based on the accompanying specification.
 
+## Key Features
+- Stylized card illustrations generated from text prompts
+- Force-directed graph view with draggable, persisted node positions
+- Browser clipper that captures page selections with screenshots and queues clips offline
+- Customizable themes and smart decks for Recent, Frequent, Unseen, Stale, and popular tags
+
 ## Development
 
 The current implementation is a minimal Node.js library that can create cards, organize them into decks and perform simple tag-based, text-based, and semantic search. Cards include a type, creation date, and optional description. A lightweight enrichment routine can automatically generate tags and a short description from the card content and may be disabled for an offline-only experience. Cards can be updated, linked together, removed safely, and the library will keep deck, link, and tag references in sync. Decks may also be removed while cleaning up card references. Data can be exported to or imported from JSON files for simple local persistence, and graph-friendly node/edge data can be generated for visualizing links between cards.
