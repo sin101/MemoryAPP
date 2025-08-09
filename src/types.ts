@@ -15,8 +15,17 @@ export interface CardData {
   embedding?: number[];
 }
 
+export interface AIProvider {
+  summarize(text: string): Promise<string>;
+  summarizeCard(card: import('./card.js').default): Promise<string>;
+  generateIllustration(title: string): Promise<string>;
+  chat(query: string, app: import('./app.js').default): Promise<string>;
+  embed(text: string): Promise<number[]>;
+  transcribe?(path: string): Promise<string>;
+}
+
 export interface AppOptions {
-  ai?: any;
+  ai?: AIProvider;
   dbPath?: string;
   encryptionKey?: string;
   logPath?: string;

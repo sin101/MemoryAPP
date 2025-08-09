@@ -1,4 +1,5 @@
-import React from 'react';
+import React, { useEffect, useRef, useState } from 'react';
+import { FixedSizeGrid as Grid } from 'react-window';
 import { tagColor } from '../tagColors';
 
 const typeIcons = {
@@ -11,24 +12,49 @@ const typeIcons = {
 };
 
 export default function CardGrid({ cards, onSelect, onEdit, onDelete, cardBg, cardBorder }) {
+  const containerRef = useRef(null);
+  const [dims, setDims] = useState({ width: 0, height: 0, columnCount: 1 });
+
+  useEffect(() => {
+    function handleResize() {
+      if (!containerRef.current) return;
+      const width = containerRef.current.clientWidth;
+      const columnCount = width >= 768 ? 3 : width >= 640 ? 2 : 1;
+      const height = window.innerHeight - containerRef.current.getBoundingClientRect().top - 20;
+      setDims({ width, height, columnCount });
+    }
+    handleResize();
+    window.addEventListener('resize', handleResize);
+    return () => window.removeEventListener('resize', handleResize);
+  }, []);
+
   if (!cards.length) {
     return <p className="text-gray-500 dark:text-gray-400">No cards found</p>;
   }
-  return (
-    <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-4">
-      {cards.map(card => (
+
+  const rowCount = Math.ceil(cards.length / dims.columnCount);
+  const columnWidth = dims.columnCount ? dims.width / dims.columnCount : dims.width;
+  const rowHeight = 360;
+
+  const itemData = { cards, columnCount: dims.columnCount, onSelect, onEdit, onDelete, cardBg, cardBorder };
+
+  const Cell = ({ columnIndex, rowIndex, style, data }) => {
+    const index = rowIndex * data.columnCount + columnIndex;
+    if (index >= data.cards.length) return null;
+    const card = data.cards[index];
+    return (
+      <div style={{ ...style, padding: 8 }}>
         <div
-          key={card.id}
           className="group relative border-4 p-4 rounded-xl cursor-pointer shadow-md hover:shadow-xl transform hover:-translate-y-1 hover:scale-105 transition bg-white dark:bg-gray-800 dark:text-white"
           style={{
-            backgroundColor: cardBg,
-            borderColor: card.tags[0] ? tagColor(card.tags[0]) : cardBorder,
+            backgroundColor: data.cardBg,
+            borderColor: card.tags[0] ? tagColor(card.tags[0]) : data.cardBorder,
           }}
-          onClick={() => onSelect(card)}
+          onClick={() => data.onSelect(card)}
         >
           <div className="absolute top-1 right-1 space-x-1 opacity-0 group-hover:opacity-100">
-            <button onClick={e => { e.stopPropagation(); onEdit && onEdit(card); }} className="text-xs">✏️</button>
-            <button onClick={e => { e.stopPropagation(); onDelete && onDelete(card.id); }} className="text-xs">🗑️</button>
+            <button onClick={e => { e.stopPropagation(); data.onEdit && data.onEdit(card); }} className="text-xs">✏️</button>
+            <button onClick={e => { e.stopPropagation(); data.onDelete && data.onDelete(card.id); }} className="text-xs">🗑️</button>
           </div>
           <h3 className="text-lg font-semibold mb-2 flex items-center">
             <span className="mr-1">{typeIcons[card.contentType || card.type || 'text'] || '📝'}</span>
@@ -87,7 +113,26 @@ export default function CardGrid({ cards, onSelect, onEdit, onDelete, cardBg, ca
             </div>
           )}
         </div>
-      ))}
+      </div>
+    );
+  };
+
+  return (
+    <div ref={containerRef} className="w-full h-full">
+      {dims.height > 0 && (
+        <Grid
+          columnCount={dims.columnCount}
+          columnWidth={columnWidth}
+          height={dims.height}
+          rowCount={rowCount}
+          rowHeight={rowHeight}
+          itemData={itemData}
+          width={dims.width}
+        >
+          {Cell}
+        </Grid>
+      )}
     </div>
   );
 }
+
