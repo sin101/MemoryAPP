@@ -12,7 +12,7 @@ import JSZip from 'jszip';
 import { createLogger } from './logger.js';
 import Fuse from 'fuse.js';
 import { Worker } from 'worker_threads';
-import type { AppOptions, CardData } from './types.js';
+import type { AppOptions, CardData, AIProvider } from './types.js';
 import { config } from './config.js';
 
 class MemoryApp extends EventEmitter {
@@ -29,13 +29,17 @@ class MemoryApp extends EventEmitter {
   webSuggestionsEnabled: boolean;
   externalCallsEnabled: boolean;
   backgroundProcessing: boolean;
-  ai: any;
+  ai: AIProvider;
   encryptionKey?: string;
   db: MemoryDB | null;
   logger?: ReturnType<typeof createLogger>;
   worker?: Worker;
   workerSeq: number;
   workerTasks: Map<number, { resolve: (v: any) => void; reject: (e: any) => void }>;
+  lshPlanes: number[][];
+  lshBuckets: Map<string, Set<string>>;
+  cardBuckets: Map<string, string>;
+  embeddingDim: number;
   constructor(options: AppOptions = {}) {
     super();
     this.cards = new Map();
@@ -73,6 +77,10 @@ class MemoryApp extends EventEmitter {
     }
     this.workerSeq = 0;
     this.workerTasks = new Map();
+    this.lshPlanes = [];
+    this.lshBuckets = new Map();
+    this.cardBuckets = new Map();
+    this.embeddingDim = 0;
     if (!options.ai) {
       try {
         this.worker = new Worker(path.join(__dirname, 'aiWorker.js'), {
@@ -137,28 +145,28 @@ class MemoryApp extends EventEmitter {
     return card;
   }
 
-  setAIEnabled(enabled) {
+  setAIEnabled(enabled: boolean) {
     this.aiEnabled = enabled;
   }
 
-  setWebSuggestionsEnabled(enabled) {
+  setWebSuggestionsEnabled(enabled: boolean) {
     this.webSuggestionsEnabled = enabled;
   }
 
-  setExternalCallsEnabled(enabled) {
+  setExternalCallsEnabled(enabled: boolean) {
     this.externalCallsEnabled = enabled;
     this.aiEnabled = enabled;
     this.webSuggestionsEnabled = enabled;
   }
 
-  enableLogging(path) {
+  enableLogging(path: string) {
     this.logger = createLogger(path);
     this.on('error', err => this.logger?.error(err.message));
     this.on('cardCreated', c => this.logger?.info(`cardCreated:${c.id}`));
     process.on('uncaughtException', err => this.logger?.error(`uncaught:${err.message}`));
   }
 
-  enrichCard(cardId) {
+  enrichCard(cardId: string) {
     if (!this.aiEnabled) {
       return null;
     }
@@ -182,7 +190,7 @@ class MemoryApp extends EventEmitter {
     return card;
   }
 
-  getDeck(name) {
+  getDeck(name: string) {
     const norm = name.toLowerCase();
     let deck = this.decks.get(norm);
     if (!deck) {
@@ -193,7 +201,7 @@ class MemoryApp extends EventEmitter {
     return deck;
   }
 
-  addCardToDeck(cardId, deckName) {
+  addCardToDeck(cardId: string, deckName: string) {
     const card = this.cards.get(cardId);
     if (!card) {
       throw new Error('Card not found');
@@ -207,8 +215,8 @@ class MemoryApp extends EventEmitter {
     }
   }
 
-  async createAudioNote(sourcePath, options = {}) {
-    const transcript = await this.ai.transcribe(sourcePath);
+    async createAudioNote(sourcePath: string, options: Partial<CardData> = {}) {
+      const transcript = this.ai.transcribe ? await this.ai.transcribe(sourcePath) : '';
     const buffer = await fs.promises.readFile(sourcePath);
     const stored = await this.saveMedia(buffer, path.basename(sourcePath));
     await fs.promises.unlink(sourcePath).catch(() => {});
@@ -220,8 +228,8 @@ class MemoryApp extends EventEmitter {
     return this.createCard(data);
   }
 
-  async createVideoNote(sourcePath, options = {}) {
-    const transcript = await this.ai.transcribe(sourcePath);
+    async createVideoNote(sourcePath: string, options: Partial<CardData> = {}) {
+      const transcript = this.ai.transcribe ? await this.ai.transcribe(sourcePath) : '';
     const buffer = await fs.promises.readFile(sourcePath);
     const stored = await this.saveMedia(buffer, path.basename(sourcePath));
     await fs.promises.unlink(sourcePath).catch(() => {});
@@ -233,7 +241,7 @@ class MemoryApp extends EventEmitter {
     return this.createCard(data);
   }
 
-  async updateCard(cardId, data) {
+  async updateCard(cardId: string, data: Partial<CardData>) {
     const card = this.cards.get(cardId);
     if (!card) {
       return null;
@@ -249,7 +257,8 @@ class MemoryApp extends EventEmitter {
     return card;
   }
 
-  async _processAndPersistCard(card) {
+  async _processAndPersistCard(card: Card) {
+    this._removeFromLSH(card.id);
     if (!card.embedding && this.aiEnabled) {
       const basis = card.content || card.source || card.title || '';
       if (basis) {
@@ -259,6 +268,9 @@ class MemoryApp extends EventEmitter {
           this.emit('error', e);
         }
       }
+    }
+    if (card.embedding) {
+      this._addToLSH(card);
     }
     if (this.aiEnabled) {
       this.enrichCard(card.id);
@@ -284,7 +296,7 @@ class MemoryApp extends EventEmitter {
     }
   }
 
-  searchByTag(tag) {
+  searchByTag(tag: string) {
     const t = tag.toLowerCase();
     const ids = this.tagIndex.get(t);
     if (!ids) {
@@ -300,18 +312,26 @@ class MemoryApp extends EventEmitter {
     return results;
   }
 
-  searchByText(query) {
+  searchByText(query: string) {
     return this.fuse.search(query).map(r => r.item);
   }
 
-  async searchBySemantic(query, limit = 5) {
+  async searchBySemantic(query: string, limit = 5) {
     if (!this.aiEnabled || !this.ai.embed) {
       return this.searchByText(query).slice(0, limit);
     }
     const qVec = await this.ai.embed(query);
-    const scored: any[] = [];
-    for (const card of this.cards.values()) {
-      if (!card.embedding) {
+    if (this.embeddingDim === 0 || this.lshPlanes.length === 0) {
+      return this.searchByText(query).slice(0, limit);
+    }
+    const bucket = this.lshBuckets.get(this._hashEmbedding(qVec));
+    if (!bucket || bucket.size === 0) {
+      return this.searchByText(query).slice(0, limit);
+    }
+    const scored: { card: Card; sim: number }[] = [];
+    for (const id of bucket) {
+      const card = this.cards.get(id);
+      if (!card?.embedding) {
         continue;
       }
       const sim = cosine(qVec, card.embedding);
@@ -319,10 +339,10 @@ class MemoryApp extends EventEmitter {
         scored.push({ card, sim });
       }
     }
-    scored.sort((a: any, b: any) => b.sim - a.sim);
-    return scored.slice(0, limit).map((s: any) => s.card);
+    scored.sort((a, b) => b.sim - a.sim);
+    return scored.slice(0, limit).map(s => s.card);
 
-    function cosine(a, b) {
+    function cosine(a: number[], b: number[]) {
       let dot = 0, na = 0, nb = 0;
       const len = Math.min(a.length, b.length);
       for (let i = 0; i < len; i++) {
@@ -334,7 +354,7 @@ class MemoryApp extends EventEmitter {
     }
   }
 
-  recordCardUsage(cardId) {
+  recordCardUsage(cardId: string) {
     const stat = this.usageStats.get(cardId) || { count: 0, lastOpened: null };
     stat.count++;
     stat.lastOpened = Date.now();
@@ -342,7 +362,7 @@ class MemoryApp extends EventEmitter {
     this._updateSmartDecks();
   }
 
-  _setDeckCards(deckName, ids) {
+  _setDeckCards(deckName: string, ids: Set<string>) {
     const deck = this.getDeck(deckName);
     const oldIds = new Set(deck.cards);
     let changed = false;
@@ -450,7 +470,7 @@ class MemoryApp extends EventEmitter {
     this._updateTagDecks();
   }
 
-  _addToTagIndex(card) {
+  _addToTagIndex(card: Card) {
     for (const tag of card.tags) {
       if (!this.tagIndex.has(tag)) {
         this.tagIndex.set(tag, new Set<string>());
@@ -459,7 +479,7 @@ class MemoryApp extends EventEmitter {
     }
   }
 
-  _removeFromTagIndex(card) {
+  _removeFromTagIndex(card: Card) {
     for (const tag of card.tags) {
       const set = this.tagIndex.get(tag);
       if (set) {
@@ -488,9 +508,88 @@ class MemoryApp extends EventEmitter {
 
   _rebuildSearchIndex() {
     this.fuse.setCollection(Array.from(this.cards.values()));
+    if (this.embeddingDim === 0) {
+      const sample = Array.from(this.cards.values()).find(c => c.embedding)?.embedding;
+      if (sample) {
+        this._initLSH(sample.length);
+      }
+    }
+    if (this.embeddingDim > 0) {
+      this.lshBuckets.clear();
+      this.cardBuckets.clear();
+      for (const card of this.cards.values()) {
+        if (card.embedding && card.embedding.length === this.embeddingDim) {
+          const h = this._hashEmbedding(card.embedding);
+          this.cardBuckets.set(card.id, h);
+          let bucket = this.lshBuckets.get(h);
+          if (!bucket) {
+            bucket = new Set();
+            this.lshBuckets.set(h, bucket);
+          }
+          bucket.add(card.id);
+        }
+      }
+    }
   }
 
-  async getCardSuggestions(cardId, limit = 3) {
+  _initLSH(dim: number) {
+    this.embeddingDim = dim;
+    this.lshPlanes = [];
+    for (let i = 0; i < 10; i++) {
+      const plane: number[] = [];
+      for (let j = 0; j < dim; j++) {
+        plane.push(Math.random() * 2 - 1);
+      }
+      this.lshPlanes.push(plane);
+    }
+  }
+
+  _hashEmbedding(vec: number[]) {
+    return this.lshPlanes
+      .map(p => {
+        let dot = 0;
+        for (let i = 0; i < p.length && i < vec.length; i++) {
+          dot += p[i] * vec[i];
+        }
+        return dot >= 0 ? '1' : '0';
+      })
+      .join('');
+  }
+
+  _addToLSH(card: Card) {
+    if (!card.embedding) {
+      return;
+    }
+    if (this.embeddingDim === 0) {
+      this._initLSH(card.embedding.length);
+    }
+    if (card.embedding.length !== this.embeddingDim) {
+      return;
+    }
+    const h = this._hashEmbedding(card.embedding);
+    this.cardBuckets.set(card.id, h);
+    let bucket = this.lshBuckets.get(h);
+    if (!bucket) {
+      bucket = new Set();
+      this.lshBuckets.set(h, bucket);
+    }
+    bucket.add(card.id);
+  }
+
+  _removeFromLSH(id: string) {
+    const h = this.cardBuckets.get(id);
+    if (!h) {
+      return;
+    }
+    const bucket = this.lshBuckets.get(h);
+    bucket?.delete(id);
+    if (bucket && bucket.size === 0) {
+      this.lshBuckets.delete(h);
+    }
+    this.cardBuckets.delete(id);
+  }
+
+  async getCardSuggestions(cardId: string, limit = 3) {
     if (!this.webSuggestionsEnabled) {
       return [];
     }
@@ -559,6 +658,7 @@ class MemoryApp extends EventEmitter {
       }
     }
     this.cards.delete(cardId);
+    this._removeFromLSH(cardId);
     this._removeFromTagIndex(card);
     this._rebuildSearchIndex();
     this.emit('cardRemoved', card);

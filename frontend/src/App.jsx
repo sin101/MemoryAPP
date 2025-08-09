@@ -481,6 +481,36 @@ export default function App() {
     importRef.current.value = '';
   };
 
+  useEffect(() => {
+    const es = new EventSource('/api/events');
+    es.addEventListener('cardCreated', e => {
+      const card = JSON.parse(e.data);
+      setCards(prev => {
+        const next = [...prev, card];
+        saveCards(next);
+        return next;
+      });
+    });
+    es.addEventListener('cardUpdated', e => {
+      const card = JSON.parse(e.data);
+      setCards(prev => {
+        const next = prev.map(c => (c.id === card.id ? card : c));
+        saveCards(next);
+        return next;
+      });
+    });
+    es.addEventListener('cardRemoved', e => {
+      const { id } = JSON.parse(e.data);
+      setCards(prev => {
+        const next = prev.filter(c => c.id !== id);
+        saveCards(next);
+        return next;
+      });
+    });
+    return () => es.close();
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
   return (
     <div className={theme === 'dark' ? 'dark flex bg-gray-900 text-white min-h-screen' : 'flex min-h-screen'}>
       <DeckSidebar decks={decks} current={deckFilter} onSelect={setDeckFilter} />

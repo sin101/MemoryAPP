@@ -1,6 +1,8 @@
 import fs from 'fs';
 import path from 'path';
 import type Card from './card.js';
+import type MemoryApp from './app.js';
+import type { AIProvider } from './types.js';
 
 export const HF_MODELS: Record<string, string> = {
   summarization: 'google/mt5-base',
@@ -46,7 +48,7 @@ function loadTransformers(): Promise<any> {
   return transformersPromise;
 }
 
-export class SimpleAI {
+export class SimpleAI implements AIProvider {
   async summarize(text: string): Promise<string> {
     return text.split(/\s+/).slice(0, 20).join(' ');
   }
@@ -82,13 +84,13 @@ export class SimpleAI {
     return `data:image/svg+xml;base64,${Buffer.from(svg).toString('base64')}`;
   }
 
-  async chat(query: string, app: any): Promise<string> {
+  async chat(query: string, app: MemoryApp): Promise<string> {
     const results = app.searchByText(query);
     if (results.length === 0) {
       return 'No matching cards.';
     }
     const card = results[0];
-    const summary = card.summary || card.content.slice(0, 100);
+    const summary = card.summary || card.content?.slice(0, 100) || '';
     return `Found card ${card.title}: ${summary}`;
   }
 
@@ -105,7 +107,7 @@ export class SimpleAI {
   }
 }
 
-export class HuggingFaceAI {
+export class HuggingFaceAI implements AIProvider {
   static _cachedModels: any = null;
   apiKey?: string;
   models: Record<string, string> = {};
@@ -127,7 +129,7 @@ export class HuggingFaceAI {
     }
   }
 
-  static async getRecommendedModels(apiKey = process.env.HUGGINGFACE_API_KEY) {
+  static async getRecommendedModels(apiKey: string | undefined = process.env.HUGGINGFACE_API_KEY) {
     const summarization = await fetchTopModel(apiKey || '', 'summarization');
     const chat = await fetchTopModel(apiKey || '', 'text-generation', 'chat');
     const image = await fetchTopModel(apiKey || '', 'text-to-image', 'stable-diffusion');
@@ -140,7 +142,7 @@ export class HuggingFaceAI {
     };
   }
 
-  async summarize(text) {
+  async summarize(text: string): Promise<string> {
     await this.ready;
     try {
       const data = await this._json(this.models.summarization, { inputs: text });
@@ -172,7 +174,7 @@ export class HuggingFaceAI {
     return this.summarize(text);
   }
 
-  async generateIllustration(prompt) {
+  async generateIllustration(prompt: string): Promise<string> {
     await this.ready;
     const styled = `cartoon art deco illustration of ${prompt}`;
     try {
@@ -183,7 +185,7 @@ export class HuggingFaceAI {
     }
   }
 
-  async embed(text) {
+  async embed(text: string): Promise<number[]> {
     await this.ready;
     try {
       const data = await this._json(this.models.embedding, { inputs: text });
@@ -204,20 +206,20 @@ export class HuggingFaceAI {
     return [];
   }
 
-  async transcribe(path) {
+  async transcribe(path: string): Promise<string> {
     await this.ready;
     const buf = await fs.promises.readFile(path);
     const data = await this._file(this.models.transcription, buf, 'audio/mpeg');
     return data.text || '';
   }
 
-  async _extractFromUrl(url) {
+  async _extractFromUrl(url: string): Promise<string> {
     const res = await fetch(url);
     const html = await res.text();
     return html.replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim();
   }
 
-  async chat(query, app) {
+  async chat(query: string, app: MemoryApp): Promise<string> {
     await this.ready;
     try {
       const context = Array.from(app.cards.values())
@@ -240,12 +242,12 @@ export class HuggingFaceAI {
     if (results.length === 0) {
       return 'No matching cards.';
     }
-    const card = results[0];
-    const summary = card.summary || card.content.slice(0, 100);
+      const card = results[0];
+      const summary = card.summary || card.content?.slice(0, 100) || '';
     return `Found card ${card.title}: ${summary}`;
   }
 
-  async _json(model, payload) {
+  async _json(model: string, payload: unknown): Promise<any> {
     const res = await fetch(`https://api-inference.huggingface.co/models/${model}`, {
       method: 'POST',
       headers: {
@@ -260,7 +262,7 @@ export class HuggingFaceAI {
     return (await res.json()) as any;
   }
 
-  async _binary(model, payload) {
+  async _binary(model: string, payload: unknown): Promise<string> {
     const res = await fetch(`https://api-inference.huggingface.co/models/${model}`, {
       method: 'POST',
       headers: {
@@ -277,7 +279,7 @@ export class HuggingFaceAI {
     return buf.toString('base64');
   }
 
-  async _file(model, buffer, contentType) {
+  async _file(model: string, buffer: Buffer, contentType: string): Promise<any> {
     const res = await fetch(`https://api-inference.huggingface.co/models/${model}`, {
       method: 'POST',
       headers: {
@@ -293,13 +295,13 @@ export class HuggingFaceAI {
   }
 }
 
-export class TransformersAI {
+export class TransformersAI implements AIProvider {
   modelsDir: string;
   summarizer: any;
   embedder: any;
   fallback: any;
 
-  constructor(options: any = {}) {
+  constructor(options: { modelsDir?: string; fallback?: AIProvider } = {}) {
     this.modelsDir = options.modelsDir || LOCAL_MODEL_DIR;
     this.summarizer = null;
     this.embedder = null;
@@ -324,7 +326,7 @@ export class TransformersAI {
     }
   }
 
-  async summarize(text) {
+  async summarize(text: string): Promise<string> {
     try {
       await this._ensure();
       const res = await this.summarizer(text);
@@ -334,16 +336,16 @@ export class TransformersAI {
     }
   }
 
-  async summarizeCard(card: Card) {
+  async summarizeCard(card: Card): Promise<string> {
     const text = card.content || card.source || card.title || '';
     return this.summarize(text);
   }
 
-  async embed(text) {
+  async embed(text: string): Promise<number[]> {
     try {
       await this._ensure();
       const res = await this.embedder(text, { pooling: 'mean', normalize: true });
-      const arr = Array.from(res.data || res);
+      const arr = Array.from(res.data || res) as number[];
       return arr;
     } catch (e) {
       if (this.fallback.embed) {
@@ -352,5 +354,18 @@ export class TransformersAI {
       return [];
     }
   }
-}
 
+  async generateIllustration(title: string): Promise<string> {
+    if (this.fallback.generateIllustration) {
+      return this.fallback.generateIllustration(title);
+    }
+    return '';
+  }
+
+  async chat(query: string, app: MemoryApp): Promise<string> {
+    if (this.fallback.chat) {
+      return this.fallback.chat(query, app);
+    }
+    return '';
+  }
+}

@@ -8,6 +8,8 @@ import { z } from 'zod';
 import { createServer } from 'http';
 import { config } from './config.js';
 
+const clients = new Set<express.Response>();
+
 const ENC_KEY = config.ENCRYPTION_KEY || '';
 export const app = new MemoryApp({ dbPath: config.DB_PATH, encryptionKey: ENC_KEY, logPath: config.LOG_PATH });
 const API_TOKEN = config.API_TOKEN || '';
@@ -22,6 +24,28 @@ api.use(
 );
 api.use(cors());
 api.use(express.json({ limit: '10mb' }));
+
+api.get('/api/events', (req, res) => {
+  res.setHeader('Content-Type', 'text/event-stream');
+  res.setHeader('Cache-Control', 'no-cache');
+  res.setHeader('Connection', 'keep-alive');
+  res.flushHeaders?.();
+  clients.add(res);
+  req.on('close', () => {
+    clients.delete(res);
+  });
+});
+
+function broadcast(event: string, data: unknown) {
+  const msg = `event: ${event}\ndata: ${JSON.stringify(data)}\n\n`;
+  for (const client of clients) {
+    client.write(msg);
+  }
+}
+
+app.on('cardCreated', c => broadcast('cardCreated', c));
+app.on('cardUpdated', c => broadcast('cardUpdated', c));
+app.on('cardRemoved', c => broadcast('cardRemoved', c));
 
 api.use((req, res, next) => {
   if (!API_TOKEN) return next();
