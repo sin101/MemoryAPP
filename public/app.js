@@ -25,7 +25,9 @@ cards = cards.map(c => ({
   ...c,
   tags: c.tags || [],
   decks: c.decks || ['default'],
-  favorite: c.favorite || false
+  favorite: c.favorite || false,
+  created: c.created || Date.now(),
+  views: c.views || 0
 }));
 let nextId = cards.reduce((m, c) => Math.max(m, Number(c.id)), 0) + 1;
 
@@ -43,9 +45,50 @@ const apiKeyInput = document.getElementById('api-key');
 const summaryModelSelect = document.getElementById('summary-model');
 const imageModelSelect = document.getElementById('image-model');
 const recordBtn = document.getElementById('record-audio');
+const accentPicker = document.getElementById('accent-picker');
+const bgPicker = document.getElementById('bg-picker');
+const textPicker = document.getElementById('text-picker');
+const fontPicker = document.getElementById('font-picker');
 
 let selectedDeck = 'all';
 let currentView = 'cards';
+let dragState = null;
+let currentGraphList = [];
+let graphSvg = null;
+
+graphContainer.addEventListener('mousemove', e => {
+  if (!dragState) return;
+  const rect = graphSvg.getBoundingClientRect();
+  dragState.card._x = e.clientX - rect.left;
+  dragState.card._y = e.clientY - rect.top;
+  dragState.circle.setAttribute('cx', dragState.card._x);
+  dragState.circle.setAttribute('cy', dragState.card._y);
+  dragState.text.setAttribute('x', dragState.card._x);
+  dragState.text.setAttribute('y', dragState.card._y + 4);
+  const lines = graphSvg.querySelectorAll(
+    `line[data-a="${dragState.card.id}"], line[data-b="${dragState.card.id}"]`
+  );
+  lines.forEach(line => {
+    if (line.dataset.a === dragState.card.id) {
+      line.setAttribute('x1', dragState.card._x);
+      line.setAttribute('y1', dragState.card._y);
+    } else {
+      line.setAttribute('x2', dragState.card._x);
+      line.setAttribute('y2', dragState.card._y);
+    }
+  });
+});
+
+function endDrag() {
+  if (!dragState) return;
+  dragState.card.pos = { x: dragState.card._x, y: dragState.card._y };
+  saveCards();
+  renderGraph(currentGraphList);
+  dragState = null;
+}
+
+graphContainer.addEventListener('mouseup', endDrag);
+graphContainer.addEventListener('mouseleave', endDrag);
 
 apiKeyInput.value = localStorage.getItem('hfKey') || '';
 apiKeyInput.addEventListener('input', () =>
@@ -62,6 +105,62 @@ summaryModelSelect.addEventListener('change', () =>
 imageModelSelect.addEventListener('change', () =>
   localStorage.setItem('imageModel', imageModelSelect.value)
 );
+
+const storedAccent = localStorage.getItem('accentColor') || '#fcb900';
+document.documentElement.style.setProperty('--card-border', storedAccent);
+accentPicker.value = storedAccent;
+accentPicker.addEventListener('input', () => {
+  document.documentElement.style.setProperty('--card-border', accentPicker.value);
+  localStorage.setItem('accentColor', accentPicker.value);
+});
+
+const storedBgLight = localStorage.getItem('bgColorLight') || '#f0f0f0';
+const storedTextLight = localStorage.getItem('textColorLight') || '#000000';
+const storedBgDark = localStorage.getItem('bgColorDark') || '#1e1e1e';
+const storedTextDark = localStorage.getItem('textColorDark') || '#f5f5f5';
+document.documentElement.style.setProperty('--bg-light', storedBgLight);
+document.documentElement.style.setProperty('--text-light', storedTextLight);
+document.documentElement.style.setProperty('--bg-dark', storedBgDark);
+document.documentElement.style.setProperty('--text-dark', storedTextDark);
+const storedFont = localStorage.getItem('fontFamily') || 'sans-serif';
+document.documentElement.style.setProperty('--font', storedFont);
+fontPicker.value = storedFont;
+
+fontPicker.addEventListener('change', () => {
+  document.documentElement.style.setProperty('--font', fontPicker.value);
+  localStorage.setItem('fontFamily', fontPicker.value);
+});
+
+function applyThemeColors() {
+  const isDark = document.body.classList.contains('dark');
+  const bgVar = isDark ? '--bg-dark' : '--bg-light';
+  const textVar = isDark ? '--text-dark' : '--text-light';
+  const bg = getComputedStyle(document.documentElement)
+    .getPropertyValue(bgVar)
+    .trim();
+  const text = getComputedStyle(document.documentElement)
+    .getPropertyValue(textVar)
+    .trim();
+  document.documentElement.style.setProperty('--bg', bg);
+  document.documentElement.style.setProperty('--text', text);
+  bgPicker.value = bg;
+  textPicker.value = text;
+}
+
+bgPicker.addEventListener('input', () => {
+  const isDark = document.body.classList.contains('dark');
+  const varName = isDark ? '--bg-dark' : '--bg-light';
+  document.documentElement.style.setProperty(varName, bgPicker.value);
+  localStorage.setItem(isDark ? 'bgColorDark' : 'bgColorLight', bgPicker.value);
+  applyThemeColors();
+});
+textPicker.addEventListener('input', () => {
+  const isDark = document.body.classList.contains('dark');
+  const varName = isDark ? '--text-dark' : '--text-light';
+  document.documentElement.style.setProperty(varName, textPicker.value);
+  localStorage.setItem(isDark ? 'textColorDark' : 'textColorLight', textPicker.value);
+  applyThemeColors();
+});
 
 function getApiKey() {
   return apiKeyInput.value.trim();
@@ -188,16 +287,25 @@ function deleteCard(id) {
 
 function filterCards(query, deck = selectedDeck) {
   const q = query.trim().toLowerCase();
-  return cards.filter(c => {
+  const cutoff = Date.now() - 7 * 24 * 60 * 60 * 1000;
+  let list = cards.filter(c => {
     const matchesQuery =
       c.title.toLowerCase().includes(q) ||
       c.tags.some(t => t.toLowerCase().includes(q));
     const matchesDeck =
       deck === 'all' ||
       (c.decks && c.decks.includes(deck)) ||
-      (deck === 'favorites' && c.favorite);
+      (deck === 'favorites' && c.favorite) ||
+      (deck === 'recent' && c.created >= cutoff) ||
+      (deck === 'frequent' && c.views >= 3) ||
+      (deck === 'unseen' && c.views === 0) ||
+      (deck.startsWith('tag:') && c.tags.includes(deck.slice(4)));
     return matchesQuery && matchesDeck;
   });
+  if (deck === 'recent') {
+    list = list.sort((a, b) => b.created - a.created).slice(0, 5);
+  }
+  return list;
 }
 
 function applyFilters() {
@@ -214,6 +322,12 @@ function renderDecks() {
   for (const card of cards) {
     (card.decks || []).forEach(d => deckSet.add(d));
   }
+  const tagCounts = {};
+  for (const card of cards) {
+    for (const tag of card.tags) {
+      tagCounts[tag] = (tagCounts[tag] || 0) + 1;
+    }
+  }
   deckList.innerHTML = '';
   const makeItem = (name, label) => {
     const li = document.createElement('li');
@@ -223,40 +337,70 @@ function renderDecks() {
     deckList.appendChild(li);
   };
   makeItem('all', 'All');
+  makeItem('recent', 'Recent');
+  if (cards.some(c => c.views >= 3)) {
+    makeItem('frequent', 'Frequent');
+  }
+  if (cards.some(c => c.views === 0)) {
+    makeItem('unseen', 'Unseen');
+  }
   for (const d of deckSet) {
     makeItem(d);
   }
   if (cards.some(c => c.favorite)) {
     makeItem('favorites', 'Favorites');
   }
+  Object.entries(tagCounts)
+    .filter(([, count]) => count >= 3)
+    .forEach(([tag]) => makeItem(`tag:${tag}`, `#${tag}`));
 }
 
 function renderGraph(list) {
+  currentGraphList = list;
   graphContainer.innerHTML = '';
   const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
   svg.setAttribute('width', '100%');
   svg.setAttribute('height', '100%');
+  graphSvg = svg;
   const width = graphContainer.clientWidth || 600;
   const height = graphContainer.clientHeight || 400;
-  const radius = Math.min(width, height) / 2 - 40;
-  list.forEach((card, idx) => {
-    const angle = (2 * Math.PI * idx) / list.length;
-    card._x = width / 2 + radius * Math.cos(angle);
-    card._y = height / 2 + radius * Math.sin(angle);
-  });
+  const nodes = list.map(c => ({ id: c.id, card: c }));
+  const links = [];
   for (let i = 0; i < list.length; i++) {
     for (let j = i + 1; j < list.length; j++) {
       if (list[i].tags.some(t => list[j].tags.includes(t))) {
-        const line = document.createElementNS('http://www.w3.org/2000/svg', 'line');
-        line.setAttribute('x1', list[i]._x);
-        line.setAttribute('y1', list[i]._y);
-        line.setAttribute('x2', list[j]._x);
-        line.setAttribute('y2', list[j]._y);
-        line.setAttribute('stroke', '#888');
-        svg.appendChild(line);
+        links.push({ source: list[i].id, target: list[j].id });
       }
     }
   }
+  nodes.forEach(n => {
+    if (n.card.pos) {
+      n.x = n.card.pos.x;
+      n.y = n.card.pos.y;
+    }
+  });
+  const sim = d3
+    .forceSimulation(nodes)
+    .force('link', d3.forceLink(links).id(d => d.id).distance(80))
+    .force('charge', d3.forceManyBody().strength(-200))
+    .force('center', d3.forceCenter(width / 2, height / 2))
+    .stop();
+  for (let i = 0; i < 150; i++) sim.tick();
+  nodes.forEach(n => {
+    n.card._x = n.x;
+    n.card._y = n.y;
+  });
+  links.forEach(l => {
+    const line = document.createElementNS('http://www.w3.org/2000/svg', 'line');
+    line.setAttribute('x1', nodes.find(n => n.id === l.source).x);
+    line.setAttribute('y1', nodes.find(n => n.id === l.source).y);
+    line.setAttribute('x2', nodes.find(n => n.id === l.target).x);
+    line.setAttribute('y2', nodes.find(n => n.id === l.target).y);
+    line.setAttribute('stroke', '#888');
+    line.dataset.a = l.source;
+    line.dataset.b = l.target;
+    svg.appendChild(line);
+  });
   for (const card of list) {
     const circle = document.createElementNS('http://www.w3.org/2000/svg', 'circle');
     circle.setAttribute('cx', card._x);
@@ -264,14 +408,17 @@ function renderGraph(list) {
     circle.setAttribute('r', 20);
     circle.setAttribute('fill', '#fcb900');
     circle.setAttribute('stroke', '#333');
-    svg.appendChild(circle);
     const text = document.createElementNS('http://www.w3.org/2000/svg', 'text');
     text.setAttribute('x', card._x);
     text.setAttribute('y', card._y + 4);
     text.setAttribute('text-anchor', 'middle');
     text.setAttribute('font-size', '10');
     text.textContent = card.title.slice(0, 10);
+    svg.appendChild(circle);
     svg.appendChild(text);
+    circle.addEventListener('mousedown', () => {
+      dragState = { card, circle, text };
+    });
   }
   graphContainer.appendChild(svg);
 }
@@ -279,6 +426,9 @@ function renderGraph(list) {
 const { fetchSuggestion } = window.suggestions;
 
 async function showCardSuggestions(card, element) {
+  card.views = (card.views || 0) + 1;
+  saveCards();
+  renderDecks();
   document
     .querySelectorAll('.card.selected')
     .forEach(el => el.classList.remove('selected'));
@@ -343,6 +493,7 @@ function setTheme(mode) {
   document.body.classList.toggle('dark', mode === 'dark');
   themeToggle.textContent = mode === 'dark' ? '☀️' : '🌙';
   localStorage.setItem('theme', mode);
+  applyThemeColors();
 }
 
 const savedTheme = localStorage.getItem('theme') || 'light';
@@ -436,7 +587,7 @@ addForm.addEventListener('submit', async e => {
   const summary = await summarizeText(description);
   const image = await generateImage(description || tags.join(', '));
   const deckForNew = selectedDeck === 'all' ? ['default'] : [selectedDeck];
-  cards.push({ id: String(nextId++), title, description, tags, summary, image, decks: deckForNew, favorite: false });
+  cards.push({ id: String(nextId++), title, description, tags, summary, image, decks: deckForNew, favorite: false, created: Date.now(), views: 0 });
   saveCards();
   renderDecks();
   applyFilters();
@@ -468,6 +619,8 @@ if (recordBtn) {
         const card = await response.json();
         card.decks = card.decks || (selectedDeck === 'all' ? ['default'] : [selectedDeck]);
         card.favorite = false;
+        card.created = card.created || Date.now();
+        card.views = card.views || 0;
         cards.push(card);
         saveCards();
         renderDecks();

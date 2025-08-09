@@ -3,6 +3,9 @@
   "name": "MemoryApp Clipper",
   "version": "0.1",
   "action": { "default_popup": "popup.html" },
-  "permissions": ["activeTab", "scripting"],
-  "host_permissions": ["http://localhost:3000/*"]
+  "permissions": ["activeTab", "scripting", "tabs", "storage"],
+  "host_permissions": ["http://localhost:3000/*"],
+  "browser_specific_settings": {
+    "gecko": { "id": "memoryapp@example.com" }
+  }
 }

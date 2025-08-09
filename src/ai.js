@@ -60,7 +60,29 @@ class SimpleAI {
   }
 
   async generateIllustration(title) {
-    return `illustration-${title.toLowerCase().replace(/[^a-z0-9]+/g, '_')}.png`;
+    const hash = [...title].reduce((h, ch) => (h * 31 + ch.charCodeAt(0)) >>> 0, 0);
+    let seed = hash || 1;
+    const rand = () => {
+      seed = (seed * 1664525 + 1013904223) >>> 0;
+      return seed / 0xffffffff;
+    };
+    const palette = ['#f15bb5', '#fee440', '#00bbf9', '#00f5d4', '#9b5de5'];
+    let svg = '<svg xmlns="http://www.w3.org/2000/svg" width="300" height="300">';
+    for (let i = 0; i < 3; i++) {
+      const color = palette[Math.floor(rand() * palette.length)];
+      const x = Math.floor(rand() * 150);
+      const y = Math.floor(rand() * 300);
+      const w = 20 + Math.floor(rand() * 80);
+      const h = 20 + Math.floor(rand() * 80);
+      const mirrorX = 300 - x - w;
+      svg += `<rect x="${x}" y="${y}" width="${w}" height="${h}" fill="${color}" opacity="0.7"/>`;
+      svg += `<rect x="${mirrorX}" y="${y}" width="${w}" height="${h}" fill="${color}" opacity="0.7"/>`;
+    }
+    const circleColor = palette[Math.floor(rand() * palette.length)];
+    const radius = 40 + rand() * 50;
+    svg += `<circle cx="150" cy="150" r="${radius}" fill="${circleColor}" opacity="0.5"/>`;
+    svg += '</svg>';
+    return `data:image/svg+xml;base64,${Buffer.from(svg).toString('base64')}`;
   }
 
   async chat(query, app) {
@@ -152,8 +174,9 @@ class HuggingFaceAI {
 
   async generateIllustration(prompt) {
     await this.ready;
+    const styled = `cartoon art deco illustration of ${prompt}`;
     try {
-      const base64 = await this._binary(this.models.image, { inputs: prompt });
+      const base64 = await this._binary(this.models.image, { inputs: styled });
       return `data:image/png;base64,${base64}`;
     } catch (e) {
       return `illustration-${prompt.toLowerCase().replace(/[^a-z0-9]+/g, '_')}.png`;
