@@ -48,7 +48,7 @@ export default function QuickAdd({ onAdd, initial, aiEnabled }) {
     const isAudio = file.type.startsWith('audio/');
     const reader = new FileReader();
     reader.onload = () => {
-      setPending({
+      const data = {
         title: file.name,
         source: file.name,
         type: isImage ? 'image' : isVideo ? 'video' : isAudio ? 'audio' : 'file',
@@ -56,7 +56,17 @@ export default function QuickAdd({ onAdd, initial, aiEnabled }) {
         image: isImage ? reader.result : undefined,
         video: isVideo ? reader.result : undefined,
         audio: isAudio ? reader.result : undefined,
-      });
+        contentType: file.type,
+      };
+      if (isAudio) {
+        const audioEl = new Audio(reader.result);
+        audioEl.onloadedmetadata = () => {
+          data.duration = audioEl.duration;
+          setPending(data);
+        };
+      } else {
+        setPending(data);
+      }
     };
     reader.readAsDataURL(file);
   };
@@ -106,7 +116,12 @@ export default function QuickAdd({ onAdd, initial, aiEnabled }) {
         const res = await fetch('/api/audio-note', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ title: pending.title, audio: base64 })
+          body: JSON.stringify({
+            title: pending.title,
+            audio: base64,
+            contentType: pending.contentType,
+            duration: pending.duration,
+          })
         });
         const card = await res.json();
         onAdd({ ...card, audio: pending.audio });
@@ -149,7 +164,15 @@ export default function QuickAdd({ onAdd, initial, aiEnabled }) {
           <video src={pending.video} controls className="mb-2 max-h-40" />
         )}
         {pending.type === 'audio' && pending.audio && (
-          <audio src={pending.audio} controls className="mb-2 w-full" />
+          <div className="mb-2">
+            <audio src={pending.audio} controls className="w-full" />
+            {pending.contentType && (
+              <p className="text-sm text-gray-600">{pending.contentType}</p>
+            )}
+            {typeof pending.duration === 'number' && !Number.isNaN(pending.duration) && (
+              <p className="text-sm text-gray-600">Duration: {pending.duration.toFixed(1)}s</p>
+            )}
+          </div>
         )}
         {pending.type === 'text' && pending.illustration && (
           <img src={pending.illustration} alt="illustration" className="mb-2 max-h-40" />

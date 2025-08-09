@@ -342,9 +342,15 @@ const { SimpleAI } = require('./src/ai');
   transAI.transcribe = async () => 'spoken words';
   const audioApp = new MemoryApp({ ai: transAI });
   fs.writeFileSync('note.webm', 'dummy');
-  const audioCard = await audioApp.createAudioNote('note.webm', { title: 'Voice' });
+  const audioCard = await audioApp.createAudioNote('note.webm', {
+    title: 'Voice',
+    contentType: 'audio/webm',
+    duration: 0,
+  });
   assert.strictEqual(audioCard.content, 'spoken words', 'Audio note should transcribe content');
   assert.strictEqual(audioCard.type, 'audio', 'Audio note should have audio type');
+  assert.strictEqual(audioCard.contentType, 'audio/webm', 'Audio note should record content type');
+  assert.strictEqual(audioCard.duration, 0, 'Audio note should record duration');
 
   // Favorite deck from usage stats
   const usageApp = new MemoryApp();

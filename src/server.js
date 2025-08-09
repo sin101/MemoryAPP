@@ -44,7 +44,11 @@ const server = http.createServer((req, res) => {
       try {
         const file = `audio-${Date.now()}.webm`;
         fs.writeFileSync(file, Buffer.from(data.audio, 'base64'));
-        const card = await app.createAudioNote(file, { title: data.title || 'Audio note' });
+        const card = await app.createAudioNote(file, {
+          title: data.title || 'Audio note',
+          contentType: data.contentType,
+          duration: data.duration,
+        });
         res.writeHead(200, { 'Content-Type': 'application/json' });
         res.end(JSON.stringify(card));
         fs.unlink(file, () => {});
