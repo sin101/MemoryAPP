@@ -8,7 +8,7 @@ import { z } from 'zod';
 import { createServer } from 'http';
 import { config } from './config.js';
 
-const clients = new Set<express.Response>();
+export const clients = new Set<express.Response>();
 
 const ENC_KEY = config.ENCRYPTION_KEY || '';
 export const app = new MemoryApp({ dbPath: config.DB_PATH, encryptionKey: ENC_KEY, logPath: config.LOG_PATH });
@@ -36,12 +36,35 @@ api.get('/api/events', (req, res) => {
   });
 });
 
-function broadcast(event: string, data: unknown) {
+export function broadcast(event: string, data: unknown) {
   const msg = `event: ${event}\ndata: ${JSON.stringify(data)}\n\n`;
-  for (const client of clients) {
-    client.write(msg);
+  for (const client of Array.from(clients)) {
+    if (client.writableEnded) {
+      clients.delete(client);
+      continue;
+    }
+    try {
+      client.write(msg);
+    } catch {
+      clients.delete(client);
+    }
   }
 }
+
+const HEARTBEAT_MS = 30_000;
+setInterval(() => {
+  for (const client of Array.from(clients)) {
+    if (client.writableEnded) {
+      clients.delete(client);
+      continue;
+    }
+    try {
+      client.write(':\n\n');
+    } catch {
+      clients.delete(client);
+    }
+  }
+}, HEARTBEAT_MS).unref();
 
 app.on('cardCreated', c => broadcast('cardCreated', c));
 app.on('cardUpdated', c => broadcast('cardUpdated', c));

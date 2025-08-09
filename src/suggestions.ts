@@ -20,11 +20,13 @@ async function fetchWithCache(tag: string, source: string, fn: (tag: string) => 
     return cached.value;
   }
   if (cached) {
-    fn(tag).then(res => {
-      if (res) {
-        cache.set(key, { ts: Date.now(), value: res });
-      }
-    });
+    fn(tag)
+      .then(res => {
+        if (res) {
+          cache.set(key, { ts: Date.now(), value: res });
+        }
+      })
+      .catch(() => {});
     return cached.value;
   }
   const res = await fn(tag);
@@ -187,6 +189,7 @@ export async function fetchSuggestion(tag: string, type = 'text') {
 }
 
 export {
+  fetchWithCache,
   fetchFromWikipedia,
   fetchFromReddit,
   fetchFromRSS,

@@ -112,10 +112,12 @@ export class HuggingFaceAI implements AIProvider {
   apiKey?: string;
   models: Record<string, string> = {};
   ready: Promise<void>;
+  timeout: number;
 
   constructor(options: any = {}) {
     this.apiKey = options.apiKey || process.env.HUGGINGFACE_API_KEY;
     this.models = Object.assign({}, HF_MODELS, options.models);
+    this.timeout = options.timeout ?? 5000;
     if (options.autoSelect !== false) {
       this.ready = (async () => {
         if (!HuggingFaceAI._cachedModels) {
@@ -247,8 +249,19 @@ export class HuggingFaceAI implements AIProvider {
     return `Found card ${card.title}: ${summary}`;
   }
 
+  private async _fetch(url: string, options: any) {
+    try {
+      return await fetch(url, { ...options, signal: AbortSignal.timeout(this.timeout) });
+    } catch (e: any) {
+      if (e.name === 'AbortError') {
+        throw new Error(`HF request timed out after ${this.timeout}ms`);
+      }
+      throw e;
+    }
+  }
+
   async _json(model: string, payload: unknown): Promise<any> {
-    const res = await fetch(`https://api-inference.huggingface.co/models/${model}`, {
+    const res = await this._fetch(`https://api-inference.huggingface.co/models/${model}`, {
       method: 'POST',
       headers: {
         Authorization: `Bearer ${this.apiKey}`,
@@ -263,7 +276,7 @@ export class HuggingFaceAI implements AIProvider {
   }
 
   async _binary(model: string, payload: unknown): Promise<string> {
-    const res = await fetch(`https://api-inference.huggingface.co/models/${model}`, {
+    const res = await this._fetch(`https://api-inference.huggingface.co/models/${model}`, {
       method: 'POST',
       headers: {
         Authorization: `Bearer ${this.apiKey}`,
@@ -280,7 +293,7 @@ export class HuggingFaceAI implements AIProvider {
   }
 
   async _file(model: string, buffer: Buffer, contentType: string): Promise<any> {
-    const res = await fetch(`https://api-inference.huggingface.co/models/${model}`, {
+    const res = await this._fetch(`https://api-inference.huggingface.co/models/${model}`, {
       method: 'POST',
       headers: {
         Authorization: `Bearer ${this.apiKey}`,
