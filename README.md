@@ -9,7 +9,7 @@ The graph helper can filter by deck, tag, or link type and includes each card's 
 
 Cards now receive simple input processing: when AI features are enabled the content or source is summarized and a placeholder illustration filename is generated. Each card retains the original source (text, file path, URL, etc.) alongside a normalized `content` field, allowing the app to track any type of material—from images and audio to videos and web links. Depending on the card type, audio and video sources are first transcribed and URLs have their main text extracted before summarization. The AI layer is pluggable, allowing integration with external language or image models to supply custom summaries and illustrations, and a lightweight chatbot can answer natural-language queries to help locate cards. A tiny SQLite-backed store can also persist cards to disk and reload them on startup.
 
-Recent additions include optional encrypted export/import, ZIP archival of data and media, a simple logging facility, and an all-in-one toggle to disable external network access. The frontend prototype now registers as a PWA with a service worker and manifest, supports drag-and-drop or pasted files via a quick add box, displays suggestions with Add/Edit/Ignore/View actions, features a deck sidebar with Pokémon-style card theming, and offers an experimental graph view.
+Recent additions include optional encrypted export/import, ZIP archival of data and media, a simple logging facility, and an all-in-one toggle to disable external network access. The frontend prototype now registers as a PWA with a service worker and manifest, persists data in IndexedDB with AES encryption, supports drag-and-drop or pasted files via a quick add box—including image, video, and audio notes—displays suggestions with Add/Edit/Ignore/View actions, features a deck sidebar with Pokémon-style card theming, customizable tag palettes and themes, and offers an experimental graph view.
 
 An event system makes the prototype dynamic and responsive. `MemoryApp` emits `cardCreated`, `cardUpdated`, `cardRemoved`, `deckRemoved`, and `cardProcessed` events so external interfaces can react to changes. For even snappier interactions, construct the app with `{ backgroundProcessing: true }` to defer AI work; creation and updates will return immediately and a `cardProcessed` event will fire once summarization and illustration generation finish.
 
@@ -43,4 +43,10 @@ Summarization uses `Xenova/distilbart-cnn-6-6` and embeddings use the MiniLM mod
 
 ```
 npm test
+```
+
+### Desktop build
+
+```
+npm run desktop:pack
 ```

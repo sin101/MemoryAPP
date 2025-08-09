@@ -3,7 +3,10 @@ const path = require('path');
 
 function createWindow() {
   const win = new BrowserWindow({ width: 800, height: 600 });
-  win.loadFile(path.join(__dirname, '../frontend/index.html'));
+  const index = app.isPackaged
+    ? path.join(__dirname, '../frontend/dist/index.html')
+    : path.join(__dirname, '../frontend/index.html');
+  win.loadFile(index);
 }
 
 app.whenReady().then(() => {
