@@ -1,6 +1,15 @@
 import React, { useState } from 'react';
 
-export default function ThemeSettings({ theme, setTheme, tagPalette, setTagPalette }) {
+export default function ThemeSettings({
+  theme,
+  setTheme,
+  tagPalette,
+  setTagPalette,
+  cardBg,
+  setCardBg,
+  cardBorder,
+  setCardBorder,
+}) {
   const [tag, setTag] = useState('');
   const [color, setColor] = useState('#ff0000');
 
@@ -23,6 +32,12 @@ export default function ThemeSettings({ theme, setTheme, tagPalette, setTagPalet
           <option value="light">Light</option>
           <option value="dark">Dark</option>
         </select>
+      </div>
+      <div className="flex items-center space-x-2 mb-2">
+        <label>Card bg:</label>
+        <input type="color" value={cardBg} onChange={e => setCardBg(e.target.value)} />
+        <label>Border:</label>
+        <input type="color" value={cardBorder} onChange={e => setCardBorder(e.target.value)} />
       </div>
       <div className="flex items-center space-x-2 mb-2">
         <input
