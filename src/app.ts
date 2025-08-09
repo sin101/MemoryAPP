@@ -217,29 +217,25 @@ class MemoryApp extends EventEmitter {
 
     async createAudioNote(sourcePath: string, options: Partial<CardData> = {}) {
       const transcript = this.ai.transcribe ? await this.ai.transcribe(sourcePath) : '';
-    const buffer = await fs.promises.readFile(sourcePath);
-    const stored = await this.saveMedia(buffer, path.basename(sourcePath));
-    await fs.promises.unlink(sourcePath).catch(() => {});
-    const data = Object.assign({}, options, {
-      content: transcript,
-      source: stored,
-      type: 'audio'
-    });
-    return this.createCard(data);
-  }
+      const stored = await this.saveMedia(sourcePath, path.basename(sourcePath));
+      const data = Object.assign({}, options, {
+        content: transcript,
+        source: stored,
+        type: 'audio'
+      });
+      return this.createCard(data);
+    }
 
     async createVideoNote(sourcePath: string, options: Partial<CardData> = {}) {
       const transcript = this.ai.transcribe ? await this.ai.transcribe(sourcePath) : '';
-    const buffer = await fs.promises.readFile(sourcePath);
-    const stored = await this.saveMedia(buffer, path.basename(sourcePath));
-    await fs.promises.unlink(sourcePath).catch(() => {});
-    const data = Object.assign({}, options, {
-      content: transcript,
-      source: stored,
-      type: 'video'
-    });
-    return this.createCard(data);
-  }
+      const stored = await this.saveMedia(sourcePath, path.basename(sourcePath));
+      const data = Object.assign({}, options, {
+        content: transcript,
+        source: stored,
+        type: 'video'
+      });
+      return this.createCard(data);
+    }
 
   async updateCard(cardId: string, data: Partial<CardData>) {
     const card = this.cards.get(cardId);
@@ -974,16 +970,25 @@ class MemoryApp extends EventEmitter {
     await fs.promises.writeFile(path, encrypted);
   }
 
-  async saveMedia(buffer, filename) {
+  async saveMedia(input, filename) {
     const dir = 'storage';
     await fs.promises.mkdir(dir, { recursive: true });
     const filePath = path.join(dir, filename);
-    let data = buffer;
+    if (typeof input === 'string') {
+      if (this.encryptionKey) {
+        const buffer = await fs.promises.readFile(input);
+        await fs.promises.unlink(input).catch(() => {});
+        return this.saveMedia(buffer, filename);
+      }
+      await fs.promises.rename(input, filePath);
+      return filePath;
+    }
+    let data = input;
     if (this.encryptionKey) {
       const iv = crypto.randomBytes(16);
       const key = crypto.createHash('sha256').update(this.encryptionKey).digest();
       const cipher = crypto.createCipheriv('aes-256-ctr', key, iv);
-      const encrypted = Buffer.concat([cipher.update(buffer), cipher.final()]);
+      const encrypted = Buffer.concat([cipher.update(input), cipher.final()]);
       data = Buffer.concat([iv, encrypted]);
     }
     await fs.promises.writeFile(filePath, data);
@@ -1110,8 +1115,8 @@ class MemoryApp extends EventEmitter {
     if (!this.db) return;
     const stored = await this.db.loadCards();
     for (const data of stored) {
-      data.tags = data.tags.map(t => t.toLowerCase());
-      data.decks = data.decks.map(d => d.toLowerCase());
+      data.tags = Array.from(data.tags).map(t => t.toLowerCase());
+      data.decks = Array.from(data.decks).map(d => d.toLowerCase());
       const card = new Card(data);
       this.cards.set(card.id, card);
       this._addToTagIndex(card);

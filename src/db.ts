@@ -2,6 +2,29 @@ import sqlite3 from 'sqlite3';
 import { open, Database } from 'sqlite';
 import crypto from 'crypto';
 
+export interface CardRecord {
+  id: string;
+  title?: string;
+  content?: string;
+  source?: string;
+  tags: Iterable<string>;
+  decks: Iterable<string>;
+  type: string;
+  description?: string;
+  createdAt: string;
+  summary?: string;
+  illustration?: string;
+  embedding?: number[] | null;
+}
+
+export interface LinkRecord {
+  id: string;
+  from: string;
+  to: string;
+  type: string;
+  annotation?: string;
+}
+
 class MemoryDB {
   path: string;
   key?: string;
@@ -40,7 +63,7 @@ class MemoryDB {
     await this.db.exec(`CREATE VIRTUAL TABLE IF NOT EXISTS card_search USING fts5(id, title, content, description)`);
   }
 
-  async saveCard(card: any): Promise<void> {
+  async saveCard(card: CardRecord): Promise<void> {
     await this.ready;
     await this.db.run(
       `INSERT OR REPLACE INTO cards (
@@ -81,7 +104,7 @@ class MemoryDB {
     await this.db.run('DELETE FROM card_search WHERE id = ?', id);
   }
 
-  async loadCards(): Promise<any[]> {
+  async loadCards(): Promise<CardRecord[]> {
     await this.ready;
     const rows = await this.db.all<any[]>('SELECT * FROM cards');
     return rows.map(r => ({
@@ -100,7 +123,7 @@ class MemoryDB {
     }));
   }
 
-  async saveLink(link: any): Promise<void> {
+  async saveLink(link: LinkRecord): Promise<void> {
     await this.ready;
     await this.db.run(
       'INSERT OR REPLACE INTO links (id, fromId, toId, type, annotation) VALUES (?, ?, ?, ?, ?)',
@@ -113,7 +136,7 @@ class MemoryDB {
     await this.db.run('DELETE FROM links WHERE id = ?', id);
   }
 
-  async loadLinks(): Promise<any[]> {
+  async loadLinks(): Promise<LinkRecord[]> {
     await this.ready;
     const rows = await this.db.all<any[]>('SELECT * FROM links');
     return rows.map(r => ({

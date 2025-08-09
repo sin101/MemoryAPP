@@ -2,8 +2,8 @@
 const assert = require('assert');
 const fs = require('fs');
 const MemoryApp = require('./src/app').default;
-const { fetchSuggestion, clearSuggestionCache } = require('./src/suggestions');
-const { SimpleAI } = require('./src/ai');
+const { fetchSuggestion, clearSuggestionCache, fetchWithCache } = require('./src/suggestions');
+const { SimpleAI, HuggingFaceAI } = require('./src/ai');
 
 process.env.RATE_LIMIT_MAX = 'oops';
 delete require.cache[require.resolve('./src/config')];
@@ -381,6 +381,33 @@ delete require.cache[require.resolve('./src/config')];
   assert.ok(timeoutDuration < 1500, 'Timeout should prevent hanging');
   global.fetch = originalFetch;
 
+  // Cache refresh handles rejection without unhandled promise
+  clearSuggestionCache();
+  const realNow = Date.now;
+  Date.now = () => 0;
+  await fetchWithCache('tag', 'src', async () => 'ok');
+  Date.now = () => 60 * 60 * 1000 + 1;
+  let unhandled = false;
+  process.once('unhandledRejection', () => {
+    unhandled = true;
+  });
+  await fetchWithCache('tag', 'src', async () => {
+    throw new Error('fail');
+  });
+  await new Promise(r => setImmediate(r));
+  Date.now = realNow;
+  assert.ok(!unhandled, 'Cache refresh rejection should be swallowed');
+
+  // HuggingFaceAI request timeout
+  const hf = new HuggingFaceAI({ apiKey: '', autoSelect: false, timeout: 50 });
+  const prevFetch = global.fetch;
+  global.fetch = () => new Promise(() => {});
+  const start = Date.now();
+  await assert.rejects(hf._json('model', {}), /timed out/);
+  const elapsed = Date.now() - start;
+  assert.ok(elapsed >= 50, 'Request should abort after timeout');
+  global.fetch = prevFetch;
+
   // Event order for create and update
   const orderCreateApp = new MemoryApp({ ai: new SimpleAI() });
   const createEvents = [];
@@ -408,6 +435,18 @@ delete require.cache[require.resolve('./src/config')];
   const processedCard = await processedPromise;
   assert.strictEqual(processedCard.id, eventCard.id, 'cardProcessed should emit after processing');
   assert.ok(processedCard.summary, 'Summary should be generated in background');
+
+  // SSE broadcast removes closed connections
+  const { broadcast, clients } = require('./src/server');
+  const dead = {
+    writableEnded: false,
+    write() {
+      throw new Error('boom');
+    }
+  };
+  clients.add(dead);
+  assert.doesNotThrow(() => broadcast('test', {}), 'Broadcast should not throw');
+  assert.strictEqual(clients.size, 0, 'Dead client should be pruned');
 
   // Database persistence
   const dbFile = 'cards.db';
@@ -451,6 +490,15 @@ delete require.cache[require.resolve('./src/config')];
   assert.strictEqual(audioCard.type, 'audio', 'Audio note should have audio type');
   assert.strictEqual(audioCard.contentType, 'audio/webm', 'Audio note should record content type');
   assert.strictEqual(audioCard.duration, 0, 'Audio note should record duration');
+
+  // Large media file handling
+  const bigApp = new MemoryApp({ ai: new SimpleAI() });
+  const bigPath = 'big.webm';
+  fs.writeFileSync(bigPath, Buffer.alloc(5 * 1024 * 1024, 1));
+  const bigCard = await bigApp.createAudioNote(bigPath, { title: 'Big' });
+  const size = fs.statSync(bigCard.source).size;
+  assert.strictEqual(size, 5 * 1024 * 1024, 'Stored file should match original size');
+  fs.unlinkSync(bigCard.source);
 
 // Favorite deck from usage stats
 const usageApp = new MemoryApp({ ai: new SimpleAI() });
