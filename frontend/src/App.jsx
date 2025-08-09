@@ -9,6 +9,7 @@ import Chatbot from './components/Chatbot';
 import ThemeSettings from './components/ThemeSettings';
 import CryptoJS from 'crypto-js';
 import { get, set } from 'idb-keyval';
+import { setTagPaletteCache } from './tagColors';
 import { openDB } from 'idb';
 
 const dbPromise = openDB('memory-store', 1, {
@@ -76,6 +77,8 @@ export default function App() {
   const [usage, setUsage] = useState({});
   const [theme, setTheme] = useState('light');
   const [tagPalette, setTagPalette] = useState({});
+  const [cardBg, setCardBg] = useState('#ffffff');
+  const [cardBorder, setCardBorder] = useState('#d1d5db');
   const importRef = useRef();
   const loadCards = async () => {
     const db = await dbPromise;
@@ -188,7 +191,14 @@ export default function App() {
     get('aiEnabled').then(v => setAiEnabled(v === undefined ? true : v));
     get('webSuggestionsEnabled').then(v => setWebSuggestionsEnabled(v === undefined ? true : v));
     get('theme').then(t => t && setTheme(t));
-    get('tagPalette').then(p => p && setTagPalette(p));
+    get('tagPalette').then(p => {
+      if (p) {
+        setTagPalette(p);
+        setTagPaletteCache(p);
+      }
+    });
+    get('cardBg').then(c => c && setCardBg(c));
+    get('cardBorder').then(c => c && setCardBorder(c));
   }, []);
 
   useEffect(() => {
@@ -507,6 +517,17 @@ export default function App() {
           setTagPalette={p => {
             setTagPalette(p);
             set('tagPalette', p);
+            setTagPaletteCache(p);
+          }}
+          cardBg={cardBg}
+          setCardBg={c => {
+            setCardBg(c);
+            set('cardBg', c);
+          }}
+          cardBorder={cardBorder}
+          setCardBorder={c => {
+            setCardBorder(c);
+            set('cardBorder', c);
           }}
         />
         <QuickAdd onAdd={addCard} initial={quickAddInitial} aiEnabled={aiEnabled} />
@@ -516,7 +537,8 @@ export default function App() {
             links={links}
             onLink={handleLinkCreate}
             onLinkEdit={handleLinkEdit}
-            tagPalette={tagPalette}
+            cardBg={cardBg}
+            cardBorder={cardBorder}
           />
         ) : (
           <CardGrid
@@ -524,7 +546,8 @@ export default function App() {
             onSelect={selectCard}
             onEdit={editCard}
             onDelete={deleteCard}
-            tagPalette={tagPalette}
+            cardBg={cardBg}
+            cardBorder={cardBorder}
           />
         )}
         <div className="mt-6">
