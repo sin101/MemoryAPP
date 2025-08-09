@@ -3,7 +3,7 @@
 This repository contains a small prototype of a personal content manager based on the accompanying specification.
 
 ## Key Features
-- Stylized card illustrations generated from text prompts
+- Stylized card illustrations generated from text prompts or offline art-deco patterns
 - Force-directed graph view with draggable, persisted node positions
 - Browser clipper that captures page selections with screenshots,
   stores them as card illustrations, and queues clips offline
@@ -18,7 +18,7 @@ Cards now receive simple input processing: when AI features are enabled the cont
 
 Recent additions include optional encrypted export/import, ZIP archival of data and media, a simple logging facility, and an all-in-one toggle to disable external network access. The frontend prototype now registers as a PWA with a service worker and manifest, persists data in IndexedDB with AES encryption, supports drag-and-drop or pasted files via a quick add box—including image, video, and audio notes—displays suggestions with Add/Edit/Ignore/View actions, features a deck sidebar with Pokémon-style card theming, customizable tag palettes and themes, and offers an experimental graph view with draggable nodes.
 
-Cards now receive stylized illustrations from text-to-image models, the graph view employs a force-directed layout with persisted node positions, the browser clipper captures page screenshots and stores them as card illustrations, supports an API token, and queues clips offline for cross-browser use, and frequently viewed cards join tag-based smart decks alongside Recent, Unseen, and Stale lists. Header pickers let you adjust the accent, background, text hues, and font for both light and dark themes.
+Cards now receive stylized illustrations from text-to-image models or locally generated art-deco SVG patterns, the graph view employs a force-directed layout with persisted node positions, the browser clipper captures page screenshots and stores them as card illustrations, supports an API token, and queues clips offline for cross-browser use, and frequently viewed cards join tag-based smart decks alongside Recent, Unseen, and Stale lists. Header pickers let you adjust the accent, background, text hues, and font for both light and dark themes.
 
 An event system makes the prototype dynamic and responsive. `MemoryApp` emits `cardCreated`, `cardUpdated`, `cardRemoved`, `deckRemoved`, and `cardProcessed` events so external interfaces can react to changes. For even snappier interactions, construct the app with `{ backgroundProcessing: true }` to defer AI work; creation and updates will return immediately and a `cardProcessed` event will fire once summarization and illustration generation finish.
 

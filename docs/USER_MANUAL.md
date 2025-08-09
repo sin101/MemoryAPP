@@ -1,7 +1,7 @@
 # User Manual
 
 ## Adding Content
-Use the quick add box to type notes or drag files and images. Pasted screenshots are detected automatically.
+Use the quick add box to type notes or drag files and images. Pasted screenshots are detected automatically. If no picture is supplied, a cartoon art-deco illustration is generated from your text using a Hugging Face model or a local SVG pattern.
 
 ## Navigating Decks
 Select a deck from the sidebar to filter cards. Cards can be favorited directly from the grid. A **Recent** deck lists notes added in the past week, tags that appear frequently are promoted to their own smart decks automatically, a **Frequent** deck surfaces cards you've opened several times, an **Unseen** deck shows cards you haven't viewed yet, and a **Stale** deck highlights notes you haven't opened in a month.

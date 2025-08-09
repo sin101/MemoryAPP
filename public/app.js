@@ -544,41 +544,53 @@ async function summarizeText(text) {
 }
 
 async function generateImage(prompt) {
-  const key = getApiKey();
-  const fallback = `https://source.unsplash.com/200x200/?${encodeURIComponent(
-    prompt || 'abstract'
-  )}`;
   const model = getImageModel();
+  const key = getApiKey();
   const styledPrompt = `a cartoon art deco illustration of ${prompt}`;
-  if (!key || !prompt) {
-    return fallback;
+  if (key && prompt) {
+    try {
+      const res = await fetch(
+        `https://api-inference.huggingface.co/models/${encodeURIComponent(
+          model
+        )}?wait_for_model=true`,
+        {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            Authorization: `Bearer ${key}`
+          },
+          body: JSON.stringify({ inputs: styledPrompt })
+        }
+      );
+      if (res.ok && res.headers.get('content-type')?.startsWith('image/')) {
+        const arrayBuffer = await res.arrayBuffer();
+        const base64 = btoa(
+          String.fromCharCode(...new Uint8Array(arrayBuffer))
+        );
+        return `data:image/png;base64,${base64}`;
+      }
+    } catch (err) {
+      console.error('image failed', err);
+    }
   }
   try {
-    const res = await fetch(
-      `https://api-inference.huggingface.co/models/${encodeURIComponent(
-        model
-      )}?wait_for_model=true`,
-      {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          Authorization: `Bearer ${key}`
-        },
-        body: JSON.stringify({ inputs: styledPrompt })
-      }
-    );
-    if (!res.ok || !res.headers.get('content-type')?.startsWith('image/')) {
+    const res = await fetch('/api/illustrate', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ prompt: prompt || 'abstract' })
+    });
+    if (res.ok) {
+      const data = await res.json();
+      if (data.image) return data.image;
+    } else {
       throw new Error(await res.text());
     }
-    const arrayBuffer = await res.arrayBuffer();
-    const base64 = btoa(
-      String.fromCharCode(...new Uint8Array(arrayBuffer))
-    );
-    return `data:image/png;base64,${base64}`;
   } catch (err) {
-    console.error('image failed', err);
-    return fallback;
+    console.error('offline illustration failed', err);
   }
+  return `https://source.unsplash.com/200x200/?${encodeURIComponent(
+    prompt || 'abstract'
+  )}`;
 }
 
 addForm.addEventListener('submit', async e => {
