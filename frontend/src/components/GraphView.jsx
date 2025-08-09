@@ -1,6 +1,7 @@
 import React, { useCallback, useMemo, useState } from 'react';
 import ReactFlow, { Background, Controls } from 'reactflow';
 import 'reactflow/dist/style.css';
+import { tagColor } from '../tagColors';
 
 export default function GraphView({ cards, links, onLink, onLinkEdit }) {
   const [deckFilter, setDeckFilter] = useState('');
@@ -25,6 +26,12 @@ export default function GraphView({ cards, links, onLink, onLinkEdit }) {
         data: {
           label: `${c.title}${c.decks?.length > 1 ? ' 🔁' : ''}`,
         },
+        style: {
+          border: `2px solid ${c.tags[0] ? tagColor(c.tags[0]) : '#d1d5db'}`,
+          padding: 10,
+          borderRadius: 8,
+          background: '#fff'
+        }
       })),
     [filtered]
   );
@@ -37,15 +44,17 @@ export default function GraphView({ cards, links, onLink, onLinkEdit }) {
             filtered.some(c => c.id === l.from) &&
             filtered.some(c => c.id === l.to)
         )
-        .map(l => ({ id: l.id, source: l.from, target: l.to, label: l.type, data: { type: l.type } })),
+        .map(l => ({ id: l.id, source: l.from, target: l.to, label: l.annotation || l.type, data: { type: l.type, annotation: l.annotation } })),
     [links, filtered, linkFilter]
   );
 
   const handleConnect = useCallback(
     params => {
       const type = prompt('Link type (e.g., inspires, completes)', 'related');
-      if (type && onLink) {
-        onLink(params.source, params.target, type);
+      if (!type) return;
+      const annotation = prompt('Annotation');
+      if (onLink) {
+        onLink(params.source, params.target, type, annotation);
       }
     },
     [onLink]
@@ -54,8 +63,10 @@ export default function GraphView({ cards, links, onLink, onLinkEdit }) {
   const handleEdgeClick = useCallback(
     (_, edge) => {
       const type = prompt('Edit link type', edge.data?.type || edge.label || '');
-      if (type !== null && onLinkEdit) {
-        onLinkEdit(edge.id, type);
+      if (type === null) return;
+      const annotation = prompt('Edit annotation', edge.data?.annotation || '');
+      if (annotation !== null && onLinkEdit) {
+        onLinkEdit(edge.id, type, annotation);
       }
     },
     [onLinkEdit]

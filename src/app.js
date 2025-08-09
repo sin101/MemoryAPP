@@ -35,7 +35,8 @@ class MemoryApp extends EventEmitter {
     } else {
       this.ai = new SimpleAI();
     }
-    this.db = options.dbPath ? new MemoryDB(options.dbPath) : null;
+    this.encryptionKey = options.encryptionKey;
+    this.db = options.dbPath ? new MemoryDB(options.dbPath, options.encryptionKey) : null;
     if (this.db) {
       this.loadFromDB();
     }
@@ -138,10 +139,26 @@ class MemoryApp extends EventEmitter {
 
   async createAudioNote(sourcePath, options = {}) {
     const transcript = await this.ai.transcribe(sourcePath);
+    const buffer = await fs.promises.readFile(sourcePath);
+    const stored = await this.saveMedia(buffer, path.basename(sourcePath));
+    fs.unlink(sourcePath, () => {});
     const data = Object.assign({}, options, {
       content: transcript,
-      source: sourcePath,
+      source: stored,
       type: 'audio'
+    });
+    return this.createCard(data);
+  }
+
+  async createVideoNote(sourcePath, options = {}) {
+    const transcript = await this.ai.transcribe(sourcePath);
+    const buffer = await fs.promises.readFile(sourcePath);
+    const stored = await this.saveMedia(buffer, path.basename(sourcePath));
+    fs.unlink(sourcePath, () => {});
+    const data = Object.assign({}, options, {
+      content: transcript,
+      source: stored,
+      type: 'video'
     });
     return this.createCard(data);
   }
@@ -213,7 +230,7 @@ class MemoryApp extends EventEmitter {
   }
 
   async searchBySemantic(query, limit = 5) {
-    if (!this.ai.embed) {
+    if (!this.aiEnabled || !this.ai.embed) {
       return this.searchByText(query).slice(0, limit);
     }
     const qVec = await this.ai.embed(query);
@@ -610,6 +627,7 @@ class MemoryApp extends EventEmitter {
         from: link.from,
         to: link.to,
         type: link.type,
+        annotation: link.annotation,
       })),
     };
   }
@@ -631,11 +649,25 @@ class MemoryApp extends EventEmitter {
     const dir = 'storage';
     await fs.promises.mkdir(dir, { recursive: true });
     const filePath = path.join(dir, filename);
-    await fs.promises.writeFile(filePath, buffer);
+    let data = buffer;
+    if (this.encryptionKey) {
+      const cipher = crypto.createCipher('aes-256-ctr', this.encryptionKey);
+      data = Buffer.concat([cipher.update(buffer), cipher.final()]);
+    }
+    await fs.promises.writeFile(filePath, data);
     return filePath;
   }
 
-  async exportZip(zipPath) {
+  async loadMedia(filePath) {
+    let data = await fs.promises.readFile(filePath);
+    if (this.encryptionKey) {
+      const decipher = crypto.createDecipher('aes-256-ctr', this.encryptionKey);
+      data = Buffer.concat([decipher.update(data), decipher.final()]);
+    }
+    return data;
+  }
+
+  async exportZipBuffer() {
     const zip = new JSZip();
     zip.file('data.json', JSON.stringify(this.toJSON(), null, 2));
     const dir = 'storage';
@@ -646,8 +678,34 @@ class MemoryApp extends EventEmitter {
         zip.file(`media/${f}`, content);
       }
     }
-    const buffer = await zip.generateAsync({ type: 'nodebuffer' });
+    return await zip.generateAsync({ type: 'nodebuffer' });
+  }
+
+  async exportZip(zipPath) {
+    const buffer = await this.exportZipBuffer();
     await fs.promises.writeFile(zipPath, buffer);
+  }
+
+  static async importZipBuffer(buffer) {
+    const zip = await JSZip.loadAsync(buffer);
+    const json = JSON.parse(await zip.file('data.json').async('string'));
+    const app = MemoryApp.fromJSON(json);
+    const dir = 'storage';
+    await fs.promises.mkdir(dir, { recursive: true });
+    const media = Object.keys(zip.files).filter(
+      n => n.startsWith('media/') && !zip.files[n].dir
+    );
+    for (const name of media) {
+      const content = await zip.file(name).async('nodebuffer');
+      const fname = name.replace('media/', '');
+      await fs.promises.writeFile(path.join(dir, fname), content);
+    }
+    return app;
+  }
+
+  static async importZip(zipPath) {
+    const buffer = await fs.promises.readFile(zipPath);
+    return MemoryApp.importZipBuffer(buffer);
   }
 
   static fromJSON(data) {

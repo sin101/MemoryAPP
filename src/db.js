@@ -1,8 +1,10 @@
 const Database = require('better-sqlite3');
+const crypto = require('crypto');
 
 class MemoryDB {
-  constructor(path) {
+  constructor(path, key) {
     this.path = path;
+    this.key = key;
     this.db = new Database(this.path);
     this.init();
     this.saveStmt = this.db.prepare(`INSERT OR REPLACE INTO cards (
@@ -36,16 +38,16 @@ class MemoryDB {
   saveCard(card) {
     this.saveStmt.run({
       id: card.id,
-      title: card.title,
-      content: card.content,
-      source: card.source,
-      tags: JSON.stringify(Array.from(card.tags)),
-      decks: JSON.stringify(Array.from(card.decks)),
+      title: this.encrypt(card.title),
+      content: this.encrypt(card.content),
+      source: this.encrypt(card.source),
+      tags: this.encrypt(JSON.stringify(Array.from(card.tags))),
+      decks: this.encrypt(JSON.stringify(Array.from(card.decks))),
       type: card.type,
-      description: card.description,
+      description: this.encrypt(card.description),
       createdAt: card.createdAt,
-      summary: card.summary || '',
-      illustration: card.illustration || ''
+      summary: this.encrypt(card.summary || ''),
+      illustration: this.encrypt(card.illustration || '')
     });
   }
 
@@ -57,17 +59,33 @@ class MemoryDB {
     const rows = this.loadStmt.all();
     return rows.map(r => ({
       id: r.id,
-      title: r.title,
-      content: r.content,
-      tags: JSON.parse(r.tags || '[]'),
-      decks: JSON.parse(r.decks || '[]'),
+      title: this.decrypt(r.title),
+      content: this.decrypt(r.content),
+      tags: JSON.parse(this.decrypt(r.tags) || '[]'),
+      decks: JSON.parse(this.decrypt(r.decks) || '[]'),
       type: r.type,
-      description: r.description,
+      description: this.decrypt(r.description),
       createdAt: r.createdAt,
-      summary: r.summary,
-      illustration: r.illustration,
-      source: r.source
+      summary: this.decrypt(r.summary),
+      illustration: this.decrypt(r.illustration),
+      source: this.decrypt(r.source)
     }));
+  }
+
+  encrypt(text) {
+    if (!this.key || text === undefined || text === null) return text;
+    const cipher = crypto.createCipher('aes-256-ctr', this.key);
+    return Buffer.concat([cipher.update(String(text), 'utf8'), cipher.final()]).toString('hex');
+  }
+
+  decrypt(text) {
+    if (!this.key || text === undefined || text === null) return text;
+    const decipher = crypto.createDecipher('aes-256-ctr', this.key);
+    try {
+      return Buffer.concat([decipher.update(Buffer.from(String(text), 'hex')), decipher.final()]).toString('utf8');
+    } catch {
+      return '';
+    }
   }
 
   close() {

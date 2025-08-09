@@ -1,0 +1,10 @@
+{
+  "name": "MemoryApp Demo",
+  "short_name": "MemoryApp",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#ffffff",
+  "description": "Offline demo for MemoryApp",
+  "icons": []
+}
+

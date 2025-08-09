@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import Fuse from 'fuse.js';
 import CardGrid from './components/CardGrid';
 import SuggestionsList from './components/SuggestionsList';
@@ -15,6 +15,7 @@ const defaultCards = [
     tags: ['demo', 'sample'],
     decks: [],
     type: 'text',
+    createdAt: new Date().toISOString(),
   },
   {
     id: '2',
@@ -23,14 +24,30 @@ const defaultCards = [
     tags: ['JavaScript', 'code'],
     decks: [],
     type: 'text',
+    createdAt: new Date().toISOString(),
   },
 ];
 
 export default function App() {
+  const encrypt = (str, key) => {
+    if (!key) return str;
+    const data = new TextEncoder().encode(str);
+    const keyData = new TextEncoder().encode(key);
+    const result = data.map((b, i) => b ^ keyData[i % keyData.length]);
+    return btoa(String.fromCharCode(...result));
+  };
+  const decrypt = (str, key) => {
+    if (!key) return str;
+    const data = Uint8Array.from(atob(str), c => c.charCodeAt(0));
+    const keyData = new TextEncoder().encode(key);
+    const result = data.map((b, i) => b ^ keyData[i % keyData.length]);
+    return new TextDecoder().decode(result);
+  };
   const [cards, setCards] = useState([]);
   const [query, setQuery] = useState('');
   const [selected, setSelected] = useState(null);
   const [deckFilter, setDeckFilter] = useState(null);
+  const [tagFilter, setTagFilter] = useState('');
   const [showGraph, setShowGraph] = useState(false);
   const [quickAddInitial, setQuickAddInitial] = useState('');
   const [links, setLinks] = useState([]);
@@ -41,33 +58,146 @@ export default function App() {
       return true;
     }
   });
+  const [aiEnabled, setAiEnabled] = useState(() => {
+    try {
+      return JSON.parse(localStorage.getItem('aiEnabled') || 'true');
+    } catch {
+      return true;
+    }
+  });
+  const [useSemantic, setUseSemantic] = useState(false);
+  const [semanticResults, setSemanticResults] = useState([]);
+  const [encKey, setEncKey] = useState(() => localStorage.getItem('encryptionKey') || '');
+  const [usage, setUsage] = useState(() => loadUsage());
+  const importRef = useRef();
+
+  const loadCards = () => {
+    let raw = localStorage.getItem('cards');
+    if (!raw) return [];
+    try {
+      raw = decrypt(raw, encKey);
+      return JSON.parse(raw);
+    } catch {
+      return [];
+    }
+  };
+
+  const saveCards = list => {
+    let raw = JSON.stringify(list);
+    raw = encrypt(raw, encKey);
+    localStorage.setItem('cards', raw);
+  };
+
+  const loadLinks = () => {
+    let raw = localStorage.getItem('links');
+    if (!raw) return [];
+    try {
+      raw = decrypt(raw, encKey);
+      return JSON.parse(raw);
+    } catch {
+      return [];
+    }
+  };
+
+  const saveLinks = list => {
+    let raw = JSON.stringify(list);
+    raw = encrypt(raw, encKey);
+    localStorage.setItem('links', raw);
+  };
+
+  const loadUsage = () => {
+    let raw = localStorage.getItem('usage');
+    if (!raw) return {};
+    try {
+      raw = decrypt(raw, encKey);
+      return JSON.parse(raw);
+    } catch {
+      return {};
+    }
+  };
+
+  const saveUsage = map => {
+    let raw = JSON.stringify(map);
+    raw = encrypt(raw, encKey);
+    localStorage.setItem('usage', raw);
+  };
 
   useEffect(() => {
-    let stored = [];
-    try {
-      stored = JSON.parse(localStorage.getItem('cards') || '[]');
-    } catch {
-      stored = [];
-    }
-    if (!stored.length) {
-      stored = defaultCards;
-      localStorage.setItem('cards', JSON.stringify(stored));
-    }
-    stored = stored.map(c => {
-      if (c.deck && !c.decks) {
-        c.decks = [c.deck];
-        delete c.deck;
+    async function init() {
+      try {
+        const res = await fetch('/api/cards');
+        if (res.ok) {
+          const data = await res.json();
+          const cs = (data.cards || []).map(c => {
+            c.decks = c.decks || [];
+            return c;
+          });
+          setCards(cs);
+          saveCards(cs);
+          setLinks(data.links || []);
+          saveLinks(data.links || []);
+          setUsage(loadUsage());
+          return;
+        }
+      } catch (e) {
+        // ignore
       }
-      c.decks = c.decks || [];
-      return c;
-    });
-    setCards(stored);
-  }, []);
+      let stored = loadCards();
+      if (!stored.length) {
+        stored = defaultCards;
+        saveCards(stored);
+      }
+      stored = stored.map(c => {
+        if (c.deck && !c.decks) {
+          c.decks = [c.deck];
+          delete c.deck;
+        }
+        c.decks = c.decks || [];
+        return c;
+      });
+      setCards(stored);
+      setLinks(loadLinks());
+      setUsage(loadUsage());
+    }
+    init();
+  }, [encKey]);
+  useEffect(() => {
+    if (aiEnabled && useSemantic && query.trim()) {
+      fetch('/api/search/semantic', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ query })
+      })
+        .then(r => r.json())
+        .then(setSemanticResults)
+        .catch(() => setSemanticResults([]));
+    } else {
+      setSemanticResults([]);
+    }
+  }, [aiEnabled, query, useSemantic]);
+
+  useEffect(() => {
+    localStorage.setItem('aiEnabled', JSON.stringify(aiEnabled));
+    localStorage.setItem('webSuggestionsEnabled', JSON.stringify(webSuggestionsEnabled));
+    fetch('/api/settings', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ aiEnabled, webSuggestionsEnabled }),
+    }).catch(() => {});
+    if (!aiEnabled) {
+      setUseSemantic(false);
+    }
+  }, [aiEnabled, webSuggestionsEnabled]);
   const fuse = useMemo(() => new Fuse(cards, { keys: ['title', 'description', 'tags'], threshold: 0.3 }), [cards]);
   const filtered = useMemo(() => {
-    const base = query.trim() ? fuse.search(query.trim()).map(r => r.item) : cards;
-    return base.filter(c => (deckFilter ? c.decks?.includes(deckFilter) : true));
-  }, [cards, fuse, query, deckFilter]);
+    const base = useSemantic && query.trim()
+      ? semanticResults
+      : query.trim() ? fuse.search(query.trim()).map(r => r.item) : cards;
+    return base.filter(c =>
+      (deckFilter ? c.decks?.includes(deckFilter) : true) &&
+      (tagFilter ? c.tags.includes(tagFilter) : true)
+    );
+  }, [cards, fuse, query, deckFilter, tagFilter, useSemantic, semanticResults]);
 
   const decks = cards.reduce((acc, c) => {
     (c.decks || []).forEach(d => {
@@ -75,50 +205,80 @@ export default function App() {
     });
     return acc;
   }, {});
+  const tagOptions = Array.from(new Set(cards.flatMap(c => c.tags || [])));
+
+  const selectCard = card => {
+    setSelected(card);
+    setUsage(prev => {
+      const next = { ...prev, [card.id]: (prev[card.id] || 0) + 1 };
+      saveUsage(next);
+      return next;
+    });
+  };
 
   const addCard = data => {
-    const newCard = { id: String(Date.now()), tags: [], decks: [], ...data };
+    const newCard = {
+      id: String(Date.now()),
+      tags: [],
+      decks: [],
+      createdAt: new Date().toISOString(),
+      ...data,
+    };
     setCards(prev => {
       const next = [...prev, newCard];
-      localStorage.setItem('cards', JSON.stringify(next));
+      saveCards(next);
       return next;
     });
   };
 
   const editCard = card => {
     const title = prompt('Edit title', card.title);
+    if (title === null) return;
+    const description = prompt('Edit description', card.description || '');
+    if (description === null) return;
+    const tagsStr = prompt(
+      'Edit tags (comma separated)',
+      (card.tags || []).join(',')
+    );
+    if (tagsStr === null) return;
     const decksStr = prompt(
       'Edit decks (comma separated)',
       (card.decks || []).join(',')
     );
-    if (title !== null && decksStr !== null) {
-      const decks = decksStr
-        .split(',')
-        .map(d => d.trim())
-        .filter(Boolean);
-      setCards(prev => {
-        const next = prev.map(c =>
-          c.id === card.id ? { ...c, title, decks } : c
-        );
-        localStorage.setItem('cards', JSON.stringify(next));
-        return next;
-      });
-    }
+    if (decksStr === null) return;
+    const tags = tagsStr
+      .split(',')
+      .map(t => t.trim())
+      .filter(Boolean);
+    const decks = decksStr
+      .split(',')
+      .map(d => d.trim())
+      .filter(Boolean);
+    setCards(prev => {
+      const next = prev.map(c =>
+        c.id === card.id ? { ...c, title, description, tags, decks } : c
+      );
+      saveCards(next);
+      return next;
+    });
   };
 
   const deleteCard = id => {
     setCards(prev => {
       const next = prev.filter(c => c.id !== id);
-      localStorage.setItem('cards', JSON.stringify(next));
+      saveCards(next);
       return next;
     });
-  };
-
-  const favCard = card => {
-    addCard({
-      ...card,
-      id: 'fav-' + card.id,
-      decks: [...(card.decks || []), 'favorites'],
+    setLinks(prev => {
+      const next = prev.filter(l => l.from !== id && l.to !== id);
+      saveLinks(next);
+      return next;
+    });
+    setUsage(prev => {
+      const next = { ...prev };
+      delete next[id];
+      saveUsage(next);
+      return next;
     });
   };
 
@@ -134,20 +294,87 @@ export default function App() {
     setQuickAddInitial(s.title);
   };
 
-  const handleLinkCreate = (from, to, type) => {
-    setLinks(prev => [...prev, { id: Date.now().toString(), from, to, type }]);
+  const handleLinkCreate = (from, to, type, annotation) => {
+    setLinks(prev => {
+      const next = [...prev, { id: Date.now().toString(), from, to, type, annotation }];
+      saveLinks(next);
+      return next;
+    });
   };
 
-  const handleLinkEdit = (id, type) => {
-    setLinks(prev => prev.map(l => (l.id === id ? { ...l, type } : l)));
+  const handleLinkEdit = (id, type, annotation) => {
+    setLinks(prev => {
+      const next = prev.map(l => (l.id === id ? { ...l, type, annotation } : l));
+      saveLinks(next);
+      return next;
+    });
   };
 
   const toggleWebSuggestions = () => {
-    setWebSuggestionsEnabled(prev => {
-      const next = !prev;
-      localStorage.setItem('webSuggestionsEnabled', JSON.stringify(next));
+    setWebSuggestionsEnabled(prev => !prev);
+  };
+
+  const handleSetKey = () => {
+    const k = prompt('Set encryption key', encKey);
+    if (k !== null) {
+      setEncKey(k);
+      localStorage.setItem('encryptionKey', k);
+      saveCards(cards);
+      saveLinks(links);
+    }
+  };
+
+  useEffect(() => {
+    const top = Object.entries(usage)
+      .sort((a, b) => b[1] - a[1])
+      .slice(0, 5)
+      .map(([id]) => id);
+    setCards(prev => {
+      const next = prev.map(c => {
+        const decks = new Set(c.decks || []);
+        if (top.includes(c.id)) {
+          decks.add('favorites');
+        } else {
+          decks.delete('favorites');
+        }
+        return { ...c, decks: Array.from(decks) };
+      });
+      saveCards(next);
       return next;
     });
+  }, [usage]);
+
+  const exportData = () => {
+    fetch('/api/export')
+      .then(r => r.blob())
+      .then(blob => {
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = 'memory-export.zip';
+        a.click();
+        URL.revokeObjectURL(url);
+      })
+      .catch(err => console.error(err));
+  };
+
+  const importData = e => {
+    const file = e.target.files[0];
+    if (!file) return;
+    file.arrayBuffer().then(buf => {
+      fetch('/api/import', { method: 'POST', body: buf })
+        .then(() => fetch('/api/cards'))
+        .then(r => r.json())
+        .then(data => {
+          const cs = (data.cards || []).map(c => ({ ...c, decks: c.decks || [] }));
+          setCards(cs);
+          saveCards(cs);
+          setLinks(data.links || []);
+          saveLinks(data.links || []);
+        })
+        .catch(err => console.error(err));
+    });
+    importRef.current.value = '';
   };
 
   return (
@@ -162,9 +389,42 @@ export default function App() {
             onChange={e => setQuery(e.target.value)}
             className="border p-2 flex-1 max-w-md"
           />
+          <select
+            value={tagFilter}
+            onChange={e => setTagFilter(e.target.value)}
+            className="border p-2"
+          >
+            <option value="">All Tags</option>
+            {tagOptions.map(t => (
+              <option key={t} value={t}>{t}</option>
+            ))}
+          </select>
+          <label className="flex items-center text-sm">
+            <input
+              type="checkbox"
+              checked={aiEnabled}
+              onChange={e => setAiEnabled(e.target.checked)}
+              className="mr-1"
+            />
+            AI
+          </label>
+          <label className="flex items-center text-sm">
+            <input
+              type="checkbox"
+              checked={useSemantic}
+              onChange={e => setUseSemantic(e.target.checked)}
+              className="mr-1"
+              disabled={!aiEnabled}
+            />
+            Semantic
+          </label>
           <button className="border px-2" onClick={() => setShowGraph(g => !g)}>Graph</button>
+          <button className="border px-2" onClick={handleSetKey}>Encrypt</button>
+          <button className="border px-2" onClick={exportData}>Export</button>
+          <button className="border px-2" onClick={() => importRef.current.click()}>Import</button>
+          <input type="file" ref={importRef} onChange={importData} className="hidden" />
         </div>
-        <QuickAdd onAdd={addCard} initial={quickAddInitial} />
+        <QuickAdd onAdd={addCard} initial={quickAddInitial} aiEnabled={aiEnabled} />
         {showGraph ? (
           <GraphView
             cards={cards}
@@ -175,10 +435,9 @@ export default function App() {
         ) : (
           <CardGrid
             cards={filtered}
-            onSelect={setSelected}
+            onSelect={selectCard}
             onEdit={editCard}
             onDelete={deleteCard}
-            onFav={favCard}
           />
         )}
         <div className="mt-6">
@@ -204,7 +463,7 @@ export default function App() {
         </div>
         <div className="mt-6">
           <h2 className="text-xl font-semibold mb-2">Chatbot</h2>
-          <Chatbot cards={cards} />
+          <Chatbot />
         </div>
       </div>
     </div>

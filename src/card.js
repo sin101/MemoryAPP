@@ -72,6 +72,22 @@ class Card {
       .map(s => s.toLowerCase());
     this.searchText = parts.join(' ');
   }
+
+  toJSON() {
+    return {
+      id: this.id,
+      title: this.title,
+      content: this.content,
+      source: this.source,
+      tags: Array.from(this.tags),
+      decks: Array.from(this.decks),
+      type: this.type,
+      description: this.description,
+      createdAt: this.createdAt,
+      summary: this.summary,
+      illustration: this.illustration,
+    };
+  }
 }
 
 module.exports = Card;

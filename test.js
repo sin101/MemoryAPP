@@ -141,6 +141,16 @@ const { SimpleAI } = require('./src/ai');
   await semApp.createCard({ title: 'Cooking', content: 'Recipe for pasta' });
   const semResults = await semApp.searchBySemantic('graph algorithms');
   assert.strictEqual(semResults[0].id, semTarget.id, 'Semantic search should find related card');
+  semApp.setAIEnabled(false);
+  const semFallback = await semApp.searchBySemantic('graph');
+  assert.strictEqual(semFallback.length, 1, 'Fallback search should return one result');
+  assert.strictEqual(semFallback[0].id, semTarget.id, 'Fallback should use text search when AI disabled');
+
+  // Chatbot query
+  const chatApp = new MemoryApp();
+  await chatApp.createCard({ title: 'ChatRef', content: 'discussion topic' });
+  const chatRefReply = await chatApp.chat('discussion');
+  assert.ok(chatRefReply.includes('ChatRef'), 'Chat should reference matching card');
 
   // Performance/behavior with many cards
   const manyApp = new MemoryApp();
@@ -331,6 +341,7 @@ const { SimpleAI } = require('./src/ai');
   const transAI = new SimpleAI();
   transAI.transcribe = async () => 'spoken words';
   const audioApp = new MemoryApp({ ai: transAI });
+  fs.writeFileSync('note.webm', 'dummy');
   const audioCard = await audioApp.createAudioNote('note.webm', { title: 'Voice' });
   assert.strictEqual(audioCard.content, 'spoken words', 'Audio note should transcribe content');
   assert.strictEqual(audioCard.type, 'audio', 'Audio note should have audio type');
@@ -383,6 +394,15 @@ const { SimpleAI } = require('./src/ai');
   fs.unlinkSync(zipFile);
   fs.rmSync('storage', { recursive: true, force: true });
   assert.strictEqual(imported.cards.size, 1, 'Importing zip should restore cards');
+
+  const buffer = await zipApp.exportZipBuffer();
+  const importedBuf = await MemoryApp.importZipBuffer(buffer);
+  fs.rmSync('storage', { recursive: true, force: true });
+  assert.strictEqual(
+    importedBuf.cards.size,
+    1,
+    'Importing zip buffer should restore cards'
+  );
 
   console.log('All tests passed');
 })().catch(err => {
