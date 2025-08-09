@@ -410,6 +410,30 @@ const { SimpleAI } = require('./src/ai');
     'Importing zip buffer should restore cards'
   );
 
+  // Web clipper screenshot handling
+  const { server: clipServer, app: clipApp } = require('./src/server');
+  await new Promise(res => clipServer.listen(0, res));
+  const clipPort = clipServer.address().port;
+  await fetch(`http://localhost:${clipPort}/api/clip`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      url: 'http://example.com',
+      title: 'Example',
+      content: 'Example content',
+      screenshot:
+        'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAF/gL+HyCuAAAAAElFTkSuQmCC'
+    })
+  });
+  clipServer.close();
+  const clipCard = Array.from(clipApp.cards.values()).find(
+    c => c.source === 'http://example.com'
+  );
+  assert.ok(
+    clipCard.illustration.startsWith('data:image/png;base64,'),
+    'Clip should store screenshot as illustration'
+  );
+
   console.log('All tests passed');
 })().catch(err => {
   console.error(err);

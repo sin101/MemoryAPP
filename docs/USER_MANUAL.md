@@ -15,4 +15,4 @@ Related web suggestions provide quick actions to add, edit, ignore or view each 
 The app can be installed as a PWA and works offline thanks to the included service worker. Use the accent, background, text color pickers, and font selector in the header to customize both light and dark themes.
 
 ## Web Clipper
-The optional browser extension sends the current page, selection, and a screenshot to the local server. Provide an API token for authenticated uploads. Clips are stored locally when offline and uploaded once connectivity is restored. The add-on targets both Chromium and Firefox thanks to a cross-browser manifest.
+The optional browser extension sends the current page, selection, and a screenshot to the local server. The screenshot becomes the card's illustration. Provide an API token for authenticated uploads. Clips are stored locally when offline and uploaded once connectivity is restored. The add-on targets both Chromium and Firefox thanks to a cross-browser manifest.
