@@ -59,6 +59,10 @@ const { SimpleAI } = require('./src/ai');
   const textResults = app.searchByText('goodbye');
   assert.strictEqual(textResults.length, 1, 'Text search should find one card');
   assert.strictEqual(textResults[0].id, second.id, 'Search result should be the second card');
+  const partialResults = app.searchByText('good');
+  assert.strictEqual(partialResults[0].id, second.id, 'Partial text search should match');
+  const fuzzyResults = app.searchByText('godbey');
+  assert.strictEqual(fuzzyResults[0].id, second.id, 'Fuzzy text search should match');
 
   const link = app.createLink(card.id, second.id, 'relates');
   assert.strictEqual(app.getLinks(card.id)[0].id, link.id, 'Link should be retrievable from first card');
@@ -526,6 +530,13 @@ usageApp.removeAllListeners('cardUpdated');
   const encLoaded = await MemoryApp.loadEncryptedFromFile(encFile, 'pw');
   fs.unlinkSync(encFile);
   assert.strictEqual(encLoaded.cards.get(encCard.id).content, 'hidden', 'Encrypted roundtrip should preserve content');
+
+  // Media encryption roundtrip
+  const encMediaApp = new MemoryApp({ ai: new SimpleAI(), encryptionKey: 'pw' });
+  const encMediaFile = await encMediaApp.saveMedia(Buffer.from('secret'), 'secret.txt');
+  const encMediaLoaded = await encMediaApp.loadMedia(encMediaFile);
+  fs.rmSync('storage', { recursive: true, force: true });
+  assert.strictEqual(encMediaLoaded.toString(), 'secret', 'Encrypted media should roundtrip');
 
   // ZIP export/import
   const zipApp = new MemoryApp({ ai: new SimpleAI() });

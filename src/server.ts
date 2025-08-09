@@ -1,6 +1,7 @@
-// @ts-nocheck
 import express from 'express';
 import cors from 'cors';
+import helmet from 'helmet';
+import rateLimit from 'express-rate-limit';
 import { promises as fs } from 'fs';
 import MemoryApp from './app.js';
 import { z } from 'zod';
@@ -11,6 +12,13 @@ export const app = new MemoryApp({ dbPath: process.env.DB_PATH, encryptionKey: E
 const API_TOKEN = process.env.API_TOKEN || '';
 
 const api = express();
+api.use(helmet());
+api.use(
+  rateLimit({
+    windowMs: 60 * 1000,
+    max: Number(process.env.RATE_LIMIT_MAX || 100)
+  })
+);
 api.use(cors());
 api.use(express.json({ limit: '10mb' }));
 

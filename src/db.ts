@@ -1,36 +1,34 @@
-import Database from 'better-sqlite3';
+import sqlite3 from 'sqlite3';
 import crypto from 'crypto';
+
+sqlite3.verbose();
+
+function run(db: sqlite3.Database, sql: string, params: any[] | object = []): Promise<void> {
+  return new Promise((resolve, reject) => {
+    (db as any).run(sql, params, (err: Error | null) => {
+      if (err) reject(err); else resolve();
+    });
+  });
+}
+
+function all<T = any>(db: sqlite3.Database, sql: string, params: any[] | object = []): Promise<T[]> {
+  return new Promise((resolve, reject) => {
+    (db as any).all(sql, params, (err: Error | null, rows: T[]) => {
+      if (err) reject(err); else resolve(rows);
+    });
+  });
+}
 
 class MemoryDB {
   path: string;
   key?: string;
-  db: Database.Database;
-  saveStmt: any;
-  deleteStmt: any;
-  loadStmt: any;
-  linkSaveStmt: any;
-  linkDeleteStmt: any;
-  linkLoadStmt: any;
+  db: sqlite3.Database;
 
   constructor(path: string, key?: string) {
     this.path = path;
     this.key = key;
-    this.db = new Database(this.path);
+    this.db = new sqlite3.Database(this.path);
     this.init();
-    this.saveStmt = this.db.prepare(`INSERT OR REPLACE INTO cards (
-      id, title, content, source, tags, decks, type, description,
-      createdAt, summary, illustration, embedding
-    ) VALUES (
-      @id, @title, @content, @source, @tags, @decks, @type, @description,
-      @createdAt, @summary, @illustration, @embedding
-    )`);
-    this.deleteStmt = this.db.prepare('DELETE FROM cards WHERE id = ?');
-    this.loadStmt = this.db.prepare('SELECT * FROM cards');
-    this.linkSaveStmt = this.db.prepare(
-      'INSERT OR REPLACE INTO links (id, fromId, toId, type, annotation) VALUES (@id, @from, @to, @type, @annotation)'
-    );
-    this.linkDeleteStmt = this.db.prepare('DELETE FROM links WHERE id = ?');
-    this.linkLoadStmt = this.db.prepare('SELECT * FROM links');
   }
 
   init() {
@@ -55,34 +53,43 @@ class MemoryDB {
       type TEXT,
       annotation TEXT
     )`;
-    this.db.exec(sql);
-    this.db.exec(linkSql);
-  }
-
-  saveCard(card: any) {
-    this.saveStmt.run({
-      id: card.id,
-      title: this.encrypt(card.title),
-      content: this.encrypt(card.content),
-      source: this.encrypt(card.source),
-      tags: this.encrypt(JSON.stringify(Array.from(card.tags))),
-      decks: this.encrypt(JSON.stringify(Array.from(card.decks))),
-      type: card.type,
-      description: this.encrypt(card.description),
-      createdAt: card.createdAt,
-      summary: this.encrypt(card.summary || ''),
-      illustration: this.encrypt(card.illustration || ''),
-      embedding: this.encrypt(card.embedding ? JSON.stringify(card.embedding) : ''),
+    this.db.serialize(() => {
+      this.db.run(sql);
+      this.db.run(linkSql);
     });
   }
 
-  deleteCard(id: string) {
-    this.deleteStmt.run(id);
+  async saveCard(card: any): Promise<void> {
+    await run(
+      this.db,
+      `INSERT OR REPLACE INTO cards (
+        id, title, content, source, tags, decks, type, description,
+        createdAt, summary, illustration, embedding
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      [
+        card.id,
+        this.encrypt(card.title),
+        this.encrypt(card.content),
+        this.encrypt(card.source),
+        this.encrypt(JSON.stringify(Array.from(card.tags))),
+        this.encrypt(JSON.stringify(Array.from(card.decks))),
+        card.type,
+        this.encrypt(card.description),
+        card.createdAt,
+        this.encrypt(card.summary || ''),
+        this.encrypt(card.illustration || ''),
+        this.encrypt(card.embedding ? JSON.stringify(card.embedding) : '')
+      ]
+    );
   }
 
-  loadCards() {
-    const rows = this.loadStmt.all();
-    return rows.map((r: any) => ({
+  async deleteCard(id: string): Promise<void> {
+    await run(this.db, 'DELETE FROM cards WHERE id = ?', [id]);
+  }
+
+  async loadCards(): Promise<any[]> {
+    const rows = await all<any>(this.db, 'SELECT * FROM cards');
+    return rows.map(r => ({
       id: r.id,
       title: this.decrypt(r.title),
       content: this.decrypt(r.content),
@@ -94,32 +101,30 @@ class MemoryDB {
       summary: this.decrypt(r.summary),
       illustration: this.decrypt(r.illustration),
       source: this.decrypt(r.source),
-      embedding: JSON.parse(this.decrypt(r.embedding) || 'null'),
+      embedding: JSON.parse(this.decrypt(r.embedding) || 'null')
     }));
   }
 
-  saveLink(link: any) {
-    this.linkSaveStmt.run({
-      id: link.id,
-      from: link.from,
-      to: link.to,
-      type: link.type,
-      annotation: this.encrypt(link.annotation || ''),
-    });
+  async saveLink(link: any): Promise<void> {
+    await run(
+      this.db,
+      'INSERT OR REPLACE INTO links (id, fromId, toId, type, annotation) VALUES (?, ?, ?, ?, ?)',
+      [link.id, link.from, link.to, link.type, this.encrypt(link.annotation || '')]
+    );
   }
 
-  deleteLink(id: string) {
-    this.linkDeleteStmt.run(id);
+  async deleteLink(id: string): Promise<void> {
+    await run(this.db, 'DELETE FROM links WHERE id = ?', [id]);
   }
 
-  loadLinks() {
-    const rows = this.linkLoadStmt.all();
-    return rows.map((r: any) => ({
+  async loadLinks(): Promise<any[]> {
+    const rows = await all<any>(this.db, 'SELECT * FROM links');
+    return rows.map(r => ({
       id: r.id,
       from: r.fromId,
       to: r.toId,
       type: r.type,
-      annotation: this.decrypt(r.annotation),
+      annotation: this.decrypt(r.annotation)
     }));
   }
 

@@ -1,11 +1,8 @@
-const fs = require('fs');
-const path = require('path');
+// @ts-nocheck
+import fs from 'fs';
+import path from 'path';
 
-if (typeof fetch === 'undefined') {
-  global.fetch = require('node-fetch');
-}
-
-const HF_MODELS = {
+export const HF_MODELS: Record<string, string> = {
   summarization: 'google/mt5-base',
   chat: 'HuggingFaceH4/zephyr-7b-beta',
   image: 'runwayml/stable-diffusion-v1-5',
@@ -13,7 +10,7 @@ const HF_MODELS = {
   embedding: 'sentence-transformers/all-MiniLM-L6-v2'
 };
 
-async function fetchTopModel(apiKey, pipelineTag, search) {
+async function fetchTopModel(apiKey: string, pipelineTag: string, search?: string): Promise<string | null> {
   let url = `https://huggingface.co/api/models?pipeline_tag=${pipelineTag}&sort=downloads&direction=-1&limit=1`;
   if (search) {
     url += `&search=${encodeURIComponent(search)}`;
@@ -25,7 +22,7 @@ async function fetchTopModel(apiKey, pipelineTag, search) {
     if (!res.ok) {
       return null;
     }
-    const data = await res.json();
+    const data: any = await res.json();
     return data[0]?.modelId || null;
   } catch (e) {
     return null;
@@ -34,32 +31,32 @@ async function fetchTopModel(apiKey, pipelineTag, search) {
 
 const LOCAL_MODEL_DIR = path.join(__dirname, '..', 'models');
 
-function hasLocalModels(modelsDir = LOCAL_MODEL_DIR) {
+export function hasLocalModels(modelsDir = LOCAL_MODEL_DIR): boolean {
   return (
     fs.existsSync(path.join(modelsDir, 'summarization', 'config.json')) &&
     fs.existsSync(path.join(modelsDir, 'embedding', 'config.json'))
   );
 }
 
-let transformersPromise = null;
-function loadTransformers() {
+let transformersPromise: Promise<any> | null = null;
+function loadTransformers(): Promise<any> {
   if (!transformersPromise) {
     transformersPromise = import('@xenova/transformers');
   }
   return transformersPromise;
 }
 
-class SimpleAI {
-  async summarize(text) {
+export class SimpleAI {
+  async summarize(text: string): Promise<string> {
     return text.split(/\s+/).slice(0, 20).join(' ');
   }
 
-  async summarizeCard(card) {
+  async summarizeCard(card: any): Promise<string> {
     const text = card.content || card.source || card.title || '';
     return this.summarize(text);
   }
 
-  async generateIllustration(title) {
+  async generateIllustration(title: string): Promise<string> {
     const hash = [...title].reduce((h, ch) => (h * 31 + ch.charCodeAt(0)) >>> 0, 0);
     let seed = hash || 1;
     const rand = () => {
@@ -85,7 +82,7 @@ class SimpleAI {
     return `data:image/svg+xml;base64,${Buffer.from(svg).toString('base64')}`;
   }
 
-  async chat(query, app) {
+  async chat(query: string, app: any): Promise<string> {
     const results = app.searchByText(query);
     if (results.length === 0) {
       return 'No matching cards.';
@@ -95,7 +92,7 @@ class SimpleAI {
     return `Found card ${card.title}: ${summary}`;
   }
 
-  async embed(text) {
+  async embed(text: string): Promise<number[]> {
     const vec = new Array(26).fill(0);
     for (const ch of text.toLowerCase()) {
       const idx = ch.charCodeAt(0) - 97;
@@ -108,10 +105,13 @@ class SimpleAI {
   }
 }
 
-class HuggingFaceAI {
-  static _cachedModels = null;
+export class HuggingFaceAI {
+  static _cachedModels: any = null;
+  apiKey?: string;
+  models: Record<string, string> = {};
+  ready: Promise<void>;
 
-  constructor(options = {}) {
+  constructor(options: any = {}) {
     this.apiKey = options.apiKey || process.env.HUGGINGFACE_API_KEY;
     this.models = Object.assign({}, HF_MODELS, options.models);
     if (options.autoSelect !== false) {
@@ -128,10 +128,10 @@ class HuggingFaceAI {
   }
 
   static async getRecommendedModels(apiKey = process.env.HUGGINGFACE_API_KEY) {
-    const summarization = await fetchTopModel(apiKey, 'summarization');
-    const chat = await fetchTopModel(apiKey, 'text-generation', 'chat');
-    const image = await fetchTopModel(apiKey, 'text-to-image', 'stable-diffusion');
-    const transcription = await fetchTopModel(apiKey, 'automatic-speech-recognition');
+    const summarization = await fetchTopModel(apiKey || '', 'summarization');
+    const chat = await fetchTopModel(apiKey || '', 'text-generation', 'chat');
+    const image = await fetchTopModel(apiKey || '', 'text-to-image', 'stable-diffusion');
+    const transcription = await fetchTopModel(apiKey || '', 'automatic-speech-recognition');
     return {
       summarization: summarization || HF_MODELS.summarization,
       chat: chat || HF_MODELS.chat,
@@ -222,14 +222,14 @@ class HuggingFaceAI {
     try {
       const context = Array.from(app.cards.values())
         .slice(0, 3)
-        .map(c => `${c.title}: ${c.content}`)
+        .map((c: any) => `${c.title}: ${c.content}`)
         .join('\n');
       const prompt = `You are a helpful assistant for a personal memory app.\n${context}\nUser: ${query}\nAssistant:`;
-      const data = await this._json(this.models.chat, {
+      const data: any = await this._json(this.models.chat, {
         inputs: prompt,
         parameters: { max_new_tokens: 60 }
       });
-      const text = data.generated_text || data[0]?.generated_text;
+      const text = (data as any).generated_text || data[0]?.generated_text;
       if (text) {
         return text.replace(prompt, '').trim();
       }
@@ -257,7 +257,7 @@ class HuggingFaceAI {
     if (!res.ok) {
       throw new Error(`HF request failed: ${res.status}`);
     }
-    return res.json();
+    return (await res.json()) as any;
   }
 
   async _binary(model, payload) {
@@ -289,12 +289,17 @@ class HuggingFaceAI {
     if (!res.ok) {
       throw new Error(`HF request failed: ${res.status}`);
     }
-    return res.json();
+    return (await res.json()) as any;
   }
 }
 
-class TransformersAI {
-  constructor(options = {}) {
+export class TransformersAI {
+  modelsDir: string;
+  summarizer: any;
+  embedder: any;
+  fallback: any;
+
+  constructor(options: any = {}) {
     this.modelsDir = options.modelsDir || LOCAL_MODEL_DIR;
     this.summarizer = null;
     this.embedder = null;
@@ -349,10 +354,3 @@ class TransformersAI {
   }
 }
 
-module.exports = {
-  SimpleAI,
-  HuggingFaceAI,
-  TransformersAI,
-  HF_MODELS,
-  hasLocalModels
-};

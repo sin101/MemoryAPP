@@ -13,7 +13,7 @@ class Card {
   contentType: string;
   duration: number;
   embedding?: number[];
-  searchText: string;
+  searchText: string = '';
 
   constructor({
     id,
@@ -100,7 +100,7 @@ class Card {
   _updateSearchText() {
     const parts = [this.title, this.content, this.description]
       .filter(Boolean)
-      .map((s: string) => s.toLowerCase());
+      .map((s: string | undefined) => (s || '').toLowerCase());
     this.searchText = parts.join(' ');
   }
 
