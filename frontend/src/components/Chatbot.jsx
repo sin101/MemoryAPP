@@ -1,21 +1,24 @@
-import React, { useMemo, useState } from 'react';
-import Fuse from 'fuse.js';
+import React, { useState } from 'react';
 
-export default function Chatbot({ cards }) {
+export default function Chatbot() {
   const [messages, setMessages] = useState([]);
-  const fuse = useMemo(() => new Fuse(cards, { keys: ['title', 'description', 'tags'], threshold: 0.3 }), [cards]);
 
-  const handleSend = e => {
+  const handleSend = async e => {
     e.preventDefault();
     const text = e.target.elements.msg.value.trim();
     if (!text) return;
-    const results = fuse.search(text);
-    let reply = "I couldn't find anything relevant.";
-    if (results.length) {
-      const card = results[0].item;
-      reply = `Maybe you're looking for "${card.title}": ${card.description}`;
+    setMessages(prev => [...prev, { from: 'user', text }]);
+    try {
+      const res = await fetch('/api/chat', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ query: text }),
+      });
+      const data = await res.json();
+      setMessages(prev => [...prev, { from: 'bot', text: data.reply || 'No response' }]);
+    } catch (e) {
+      setMessages(prev => [...prev, { from: 'bot', text: 'Error contacting server.' }]);
     }
-    setMessages(prev => [...prev, { from: 'user', text }, { from: 'bot', text: reply }]);
     e.target.reset();
   };
 

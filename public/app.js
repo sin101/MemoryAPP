@@ -1,3 +1,9 @@
+if ('serviceWorker' in navigator) {
+  window.addEventListener('load', () => {
+    navigator.serviceWorker.register('/sw.js');
+  });
+}
+
 let cards = JSON.parse(localStorage.getItem('cards') || '[]');
 if (cards.length === 0) {
   cards = [

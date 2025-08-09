@@ -4,10 +4,10 @@ async function clip() {
     target: { tabId: tab.id },
     func: () => window.getSelection().toString(),
   });
-  await fetch('http://localhost:3000/api/cards', {
+  await fetch('http://localhost:3000/api/clip', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ title: tab.title, source: tab.url, content: selection })
+    body: JSON.stringify({ title: tab.title, url: tab.url, content: selection })
   });
   window.close();
 }
