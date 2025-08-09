@@ -1,4 +1,20 @@
 class Card {
+  id: string;
+  title: string;
+  content?: string;
+  source: string;
+  tags: Set<string>;
+  decks: Set<string>;
+  type: string;
+  description: string;
+  createdAt: string;
+  summary: string;
+  illustration: string;
+  contentType: string;
+  duration: number;
+  embedding?: number[];
+  searchText: string;
+
   constructor({
     id,
     title,
@@ -13,7 +29,8 @@ class Card {
     illustration = '',
     contentType = '',
     duration = 0,
-  }) {
+    embedding,
+  }: any) {
     this.id = id;
     this.title = title;
     this.content = content;
@@ -27,22 +44,23 @@ class Card {
     this.illustration = illustration;
     this.contentType = contentType;
     this.duration = duration;
+    this.embedding = embedding;
     this._updateSearchText();
   }
 
-  addTag(tag) {
+  addTag(tag: string) {
     this.tags.add(tag.toLowerCase());
   }
 
-  addDeck(deckName) {
+  addDeck(deckName: string) {
     this.decks.add(deckName.toLowerCase());
   }
 
-  removeTag(tag) {
+  removeTag(tag: string) {
     this.tags.delete(tag);
   }
 
-  update({ title, content, source, tags, description, type, summary, illustration, contentType, duration }) {
+  update({ title, content, source, tags, description, type, summary, illustration, contentType, duration, embedding }: any) {
     if (title !== undefined) {
       this.title = title;
     }
@@ -53,7 +71,7 @@ class Card {
       this.source = source;
     }
     if (tags !== undefined) {
-      this.tags = new Set(tags.map(tag => tag.toLowerCase()));
+      this.tags = new Set(tags.map((tag: string) => tag.toLowerCase()));
     }
     if (description !== undefined) {
       this.description = description;
@@ -73,13 +91,16 @@ class Card {
     if (duration !== undefined) {
       this.duration = duration;
     }
+    if (embedding !== undefined) {
+      this.embedding = embedding;
+    }
     this._updateSearchText();
   }
 
   _updateSearchText() {
     const parts = [this.title, this.content, this.description]
       .filter(Boolean)
-      .map(s => s.toLowerCase());
+      .map((s: string) => s.toLowerCase());
     this.searchText = parts.join(' ');
   }
 
@@ -98,8 +119,9 @@ class Card {
       illustration: this.illustration,
       contentType: this.contentType,
       duration: this.duration,
+      embedding: this.embedding,
     };
   }
 }
 
-module.exports = Card;
+export default Card;

@@ -1,5 +1,11 @@
 class Link {
-  constructor({ id, from, to, type = 'related', annotation = '' }) {
+  id: string;
+  from: string;
+  to: string;
+  type: string;
+  annotation: string;
+
+  constructor({ id, from, to, type = 'related', annotation = '' }: any) {
     this.id = id;
     this.from = from;
     this.to = to;
@@ -7,7 +13,7 @@ class Link {
     this.annotation = annotation;
   }
 
-  update({ type, annotation }) {
+  update({ type, annotation }: any) {
     if (type !== undefined) {
       this.type = type;
     }
@@ -17,4 +23,4 @@ class Link {
   }
 }
 
-module.exports = Link;
+export default Link;

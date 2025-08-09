@@ -1,18 +1,28 @@
-const Database = require('better-sqlite3');
-const crypto = require('crypto');
+import Database from 'better-sqlite3';
+import crypto from 'crypto';
 
 class MemoryDB {
-  constructor(path, key) {
+  path: string;
+  key?: string;
+  db: Database.Database;
+  saveStmt: any;
+  deleteStmt: any;
+  loadStmt: any;
+  linkSaveStmt: any;
+  linkDeleteStmt: any;
+  linkLoadStmt: any;
+
+  constructor(path: string, key?: string) {
     this.path = path;
     this.key = key;
     this.db = new Database(this.path);
     this.init();
     this.saveStmt = this.db.prepare(`INSERT OR REPLACE INTO cards (
       id, title, content, source, tags, decks, type, description,
-      createdAt, summary, illustration
+      createdAt, summary, illustration, embedding
     ) VALUES (
       @id, @title, @content, @source, @tags, @decks, @type, @description,
-      @createdAt, @summary, @illustration
+      @createdAt, @summary, @illustration, @embedding
     )`);
     this.deleteStmt = this.db.prepare('DELETE FROM cards WHERE id = ?');
     this.loadStmt = this.db.prepare('SELECT * FROM cards');
@@ -35,7 +45,8 @@ class MemoryDB {
       description TEXT,
       createdAt TEXT,
       summary TEXT,
-      illustration TEXT
+      illustration TEXT,
+      embedding TEXT
     )`;
     const linkSql = `CREATE TABLE IF NOT EXISTS links (
       id TEXT PRIMARY KEY,
@@ -48,7 +59,7 @@ class MemoryDB {
     this.db.exec(linkSql);
   }
 
-  saveCard(card) {
+  saveCard(card: any) {
     this.saveStmt.run({
       id: card.id,
       title: this.encrypt(card.title),
@@ -60,17 +71,18 @@ class MemoryDB {
       description: this.encrypt(card.description),
       createdAt: card.createdAt,
       summary: this.encrypt(card.summary || ''),
-      illustration: this.encrypt(card.illustration || '')
+      illustration: this.encrypt(card.illustration || ''),
+      embedding: this.encrypt(card.embedding ? JSON.stringify(card.embedding) : ''),
     });
   }
 
-  deleteCard(id) {
+  deleteCard(id: string) {
     this.deleteStmt.run(id);
   }
 
   loadCards() {
     const rows = this.loadStmt.all();
-    return rows.map(r => ({
+    return rows.map((r: any) => ({
       id: r.id,
       title: this.decrypt(r.title),
       content: this.decrypt(r.content),
@@ -81,11 +93,12 @@ class MemoryDB {
       createdAt: r.createdAt,
       summary: this.decrypt(r.summary),
       illustration: this.decrypt(r.illustration),
-      source: this.decrypt(r.source)
+      source: this.decrypt(r.source),
+      embedding: JSON.parse(this.decrypt(r.embedding) || 'null'),
     }));
   }
 
-  saveLink(link) {
+  saveLink(link: any) {
     this.linkSaveStmt.run({
       id: link.id,
       from: link.from,
@@ -95,13 +108,13 @@ class MemoryDB {
     });
   }
 
-  deleteLink(id) {
+  deleteLink(id: string) {
     this.linkDeleteStmt.run(id);
   }
 
   loadLinks() {
     const rows = this.linkLoadStmt.all();
-    return rows.map(r => ({
+    return rows.map((r: any) => ({
       id: r.id,
       from: r.fromId,
       to: r.toId,
@@ -110,17 +123,24 @@ class MemoryDB {
     }));
   }
 
-  encrypt(text) {
+  encrypt(text: any) {
     if (!this.key || text === undefined || text === null) return text;
-    const cipher = crypto.createCipher('aes-256-ctr', this.key);
-    return Buffer.concat([cipher.update(String(text), 'utf8'), cipher.final()]).toString('hex');
+    const iv = crypto.randomBytes(16);
+    const key = crypto.createHash('sha256').update(this.key).digest();
+    const cipher = crypto.createCipheriv('aes-256-ctr', key, iv);
+    const encrypted = Buffer.concat([cipher.update(String(text), 'utf8'), cipher.final()]);
+    return iv.toString('hex') + ':' + encrypted.toString('hex');
   }
 
-  decrypt(text) {
+  decrypt(text: any) {
     if (!this.key || text === undefined || text === null) return text;
-    const decipher = crypto.createDecipher('aes-256-ctr', this.key);
     try {
-      return Buffer.concat([decipher.update(Buffer.from(String(text), 'hex')), decipher.final()]).toString('utf8');
+      const [ivHex, dataHex] = String(text).split(':');
+      const iv = Buffer.from(ivHex, 'hex');
+      const encrypted = Buffer.from(dataHex, 'hex');
+      const key = crypto.createHash('sha256').update(this.key).digest();
+      const decipher = crypto.createDecipheriv('aes-256-ctr', key, iv);
+      return Buffer.concat([decipher.update(encrypted), decipher.final()]).toString('utf8');
     } catch {
       return '';
     }
@@ -131,4 +151,4 @@ class MemoryDB {
   }
 }
 
-module.exports = MemoryDB;
+export default MemoryDB;
