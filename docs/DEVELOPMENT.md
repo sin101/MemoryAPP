@@ -18,7 +18,7 @@ An Electron entry point is provided in `desktop/main.js`.
 To produce packaged desktop binaries for Windows, macOS, and Linux:
 
 ```
-npm run desktop:pack
+npm run desktop:build
 ```
 
-The output will be written to `dist-desktop/`.
+This runs the frontend build and then packages the application with `electron-builder`. The output will be written to `dist-desktop/`.
