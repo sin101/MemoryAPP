@@ -11,13 +11,8 @@ permissions:
 
 jobs:
   auto_merge:
-    # Only for non-draft PRs authored by sin101 OR PRs labeled "automerge"
-    if: |
-      !github.event.pull_request.draft &&
-      (
-        github.event.pull_request.user.login == 'sin101' ||
-        contains(github.event.pull_request.labels.*.name, 'automerge')
-      )
+    # Only for non-draft PRs
+    if: github.event.pull_request.draft == false
     runs-on: ubuntu-latest
     steps:
       - name: Enable auto-merge (squash) and delete branch when ready
