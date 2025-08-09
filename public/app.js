@@ -27,7 +27,8 @@ cards = cards.map(c => ({
   decks: c.decks || ['default'],
   favorite: c.favorite || false,
   created: c.created || Date.now(),
-  views: c.views || 0
+  views: c.views || 0,
+  lastViewed: c.lastViewed || c.created || Date.now()
 }));
 let nextId = cards.reduce((m, c) => Math.max(m, Number(c.id)), 0) + 1;
 
@@ -287,7 +288,8 @@ function deleteCard(id) {
 
 function filterCards(query, deck = selectedDeck) {
   const q = query.trim().toLowerCase();
-  const cutoff = Date.now() - 7 * 24 * 60 * 60 * 1000;
+  const recentCutoff = Date.now() - 7 * 24 * 60 * 60 * 1000;
+  const staleCutoff = Date.now() - 30 * 24 * 60 * 60 * 1000;
   let list = cards.filter(c => {
     const matchesQuery =
       c.title.toLowerCase().includes(q) ||
@@ -296,9 +298,10 @@ function filterCards(query, deck = selectedDeck) {
       deck === 'all' ||
       (c.decks && c.decks.includes(deck)) ||
       (deck === 'favorites' && c.favorite) ||
-      (deck === 'recent' && c.created >= cutoff) ||
+      (deck === 'recent' && c.created >= recentCutoff) ||
       (deck === 'frequent' && c.views >= 3) ||
       (deck === 'unseen' && c.views === 0) ||
+      (deck === 'stale' && (c.lastViewed || c.created) < staleCutoff) ||
       (deck.startsWith('tag:') && c.tags.includes(deck.slice(4)));
     return matchesQuery && matchesDeck;
   });
@@ -343,6 +346,10 @@ function renderDecks() {
   }
   if (cards.some(c => c.views === 0)) {
     makeItem('unseen', 'Unseen');
+  }
+  const staleCutoff = Date.now() - 30 * 24 * 60 * 60 * 1000;
+  if (cards.some(c => (c.lastViewed || c.created) < staleCutoff)) {
+    makeItem('stale', 'Stale');
   }
   for (const d of deckSet) {
     makeItem(d);
@@ -427,6 +434,7 @@ const { fetchSuggestion } = window.suggestions;
 
 async function showCardSuggestions(card, element) {
   card.views = (card.views || 0) + 1;
+  card.lastViewed = Date.now();
   saveCards();
   renderDecks();
   document
@@ -587,7 +595,19 @@ addForm.addEventListener('submit', async e => {
   const summary = await summarizeText(description);
   const image = await generateImage(description || tags.join(', '));
   const deckForNew = selectedDeck === 'all' ? ['default'] : [selectedDeck];
-  cards.push({ id: String(nextId++), title, description, tags, summary, image, decks: deckForNew, favorite: false, created: Date.now(), views: 0 });
+  cards.push({
+    id: String(nextId++),
+    title,
+    description,
+    tags,
+    summary,
+    image,
+    decks: deckForNew,
+    favorite: false,
+    created: Date.now(),
+    views: 0,
+    lastViewed: Date.now()
+  });
   saveCards();
   renderDecks();
   applyFilters();
@@ -621,6 +641,7 @@ if (recordBtn) {
         card.favorite = false;
         card.created = card.created || Date.now();
         card.views = card.views || 0;
+        card.lastViewed = Date.now();
         cards.push(card);
         saveCards();
         renderDecks();

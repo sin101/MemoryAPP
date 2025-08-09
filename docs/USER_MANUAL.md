@@ -4,7 +4,7 @@
 Use the quick add box to type notes or drag files and images. Pasted screenshots are detected automatically.
 
 ## Navigating Decks
-Select a deck from the sidebar to filter cards. Cards can be favorited directly from the grid. A **Recent** deck lists notes added in the past week, tags that appear frequently are promoted to their own smart decks automatically, a **Frequent** deck surfaces cards you've opened several times, and an **Unseen** deck shows cards you haven't viewed yet.
+Select a deck from the sidebar to filter cards. Cards can be favorited directly from the grid. A **Recent** deck lists notes added in the past week, tags that appear frequently are promoted to their own smart decks automatically, a **Frequent** deck surfaces cards you've opened several times, an **Unseen** deck shows cards you haven't viewed yet, and a **Stale** deck highlights notes you haven't opened in a month.
 
 ## Graph View
 Toggle the graph button to visualize card connections. Cards are arranged using a force-directed layout; drag nodes to rearrange and their positions are saved locally.
