@@ -7,7 +7,6 @@ import DeckSidebar from './components/DeckSidebar';
 import GraphView from './components/GraphView';
 import Chatbot from './components/Chatbot';
 import ThemeSettings from './components/ThemeSettings';
-import CryptoJS from 'crypto-js';
 import { get, set } from 'idb-keyval';
 
 const defaultCards = [
@@ -32,17 +31,47 @@ const defaultCards = [
 ];
 
 export default function App() {
-  const encrypt = (str, key) => {
-    if (!key) return str;
-    return CryptoJS.AES.encrypt(str, key).toString();
+  const bufToB64 = buf => btoa(String.fromCharCode(...new Uint8Array(buf)));
+  const b64ToBuf = b64 => Uint8Array.from(atob(b64), c => c.charCodeAt(0));
+  const xorDecrypt = (str, key) => {
+    const data = atob(str);
+    let res = '';
+    for (let i = 0; i < data.length; i++) {
+      res += String.fromCharCode(data.charCodeAt(i) ^ key.charCodeAt(i % key.length));
+    }
+    return res;
   };
-  const decrypt = (str, key) => {
+  const deriveKey = async key => {
+    const enc = new TextEncoder().encode(key);
+    const hash = await crypto.subtle.digest('SHA-256', enc);
+    return crypto.subtle.importKey('raw', hash, 'AES-GCM', false, ['encrypt', 'decrypt']);
+  };
+  const encrypt = async (str, key) => {
     if (!key) return str;
+    const cryptoKey = await deriveKey(key);
+    const iv = crypto.getRandomValues(new Uint8Array(12));
+    const encoded = new TextEncoder().encode(str);
+    const cipher = await crypto.subtle.encrypt({ name: 'AES-GCM', iv }, cryptoKey, encoded);
+    return `${bufToB64(iv)}:${bufToB64(cipher)}`;
+  };
+  const decrypt = async (str, key) => {
+    if (!key) return { text: str, migrated: false };
+    if (str.includes(':')) {
+      try {
+        const [ivB64, dataB64] = str.split(':');
+        const iv = b64ToBuf(ivB64);
+        const data = b64ToBuf(dataB64);
+        const cryptoKey = await deriveKey(key);
+        const plain = await crypto.subtle.decrypt({ name: 'AES-GCM', iv }, cryptoKey, data);
+        return { text: new TextDecoder().decode(plain), migrated: false };
+      } catch {
+        // ignore and try legacy format
+      }
+    }
     try {
-      const bytes = CryptoJS.AES.decrypt(str, key);
-      return bytes.toString(CryptoJS.enc.Utf8);
+      return { text: xorDecrypt(str, key), migrated: true };
     } catch {
-      return str;
+      return { text: str, migrated: false };
     }
   };
   const [cards, setCards] = useState([]);
@@ -67,8 +96,10 @@ export default function App() {
     let raw = await get('cards');
     if (!raw) return [];
     try {
-      raw = decrypt(raw, encKey);
-      return JSON.parse(raw);
+      const { text, migrated } = await decrypt(raw, encKey);
+      const data = JSON.parse(text);
+      if (migrated) await saveCards(data);
+      return data;
     } catch {
       return [];
     }
@@ -76,7 +107,7 @@ export default function App() {
 
   const saveCards = async list => {
     let raw = JSON.stringify(list);
-    raw = encrypt(raw, encKey);
+    raw = await encrypt(raw, encKey);
     await set('cards', raw);
   };
 
@@ -84,8 +115,10 @@ export default function App() {
     let raw = await get('links');
     if (!raw) return [];
     try {
-      raw = decrypt(raw, encKey);
-      return JSON.parse(raw);
+      const { text, migrated } = await decrypt(raw, encKey);
+      const data = JSON.parse(text);
+      if (migrated) await saveLinks(data);
+      return data;
     } catch {
       return [];
     }
@@ -93,7 +126,7 @@ export default function App() {
 
   const saveLinks = async list => {
     let raw = JSON.stringify(list);
-    raw = encrypt(raw, encKey);
+    raw = await encrypt(raw, encKey);
     await set('links', raw);
   };
 
@@ -101,8 +134,10 @@ export default function App() {
     let raw = await get('usage');
     if (!raw) return {};
     try {
-      raw = decrypt(raw, encKey);
-      return JSON.parse(raw);
+      const { text, migrated } = await decrypt(raw, encKey);
+      const data = JSON.parse(text);
+      if (migrated) await saveUsage(data);
+      return data;
     } catch {
       return {};
     }
@@ -110,7 +145,7 @@ export default function App() {
 
   const saveUsage = async map => {
     let raw = JSON.stringify(map);
-    raw = encrypt(raw, encKey);
+    raw = await encrypt(raw, encKey);
     await set('usage', raw);
   };
 
@@ -318,13 +353,14 @@ export default function App() {
     setWebSuggestionsEnabled(prev => !prev);
   };
 
-  const handleSetKey = () => {
+  const handleSetKey = async () => {
     const k = prompt('Set encryption key', encKey);
     if (k !== null) {
       setEncKey(k);
       set('encryptionKey', k);
-      saveCards(cards);
-      saveLinks(links);
+      await saveCards(cards);
+      await saveLinks(links);
+      await saveUsage(usage);
     }
   };
 
