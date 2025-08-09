@@ -11,7 +11,7 @@ const typeIcons = {
   audio: '🎤',
 };
 
-export default function CardGrid({ cards, onSelect, onEdit, onDelete, cardBg, cardBorder }) {
+export default function CardGrid({ cards, onSelect, onEdit, onDelete, cardBg, cardBorder, highlight }) {
   const containerRef = useRef(null);
   const [dims, setDims] = useState({ width: 0, height: 0, columnCount: 1 });
 
@@ -36,7 +36,15 @@ export default function CardGrid({ cards, onSelect, onEdit, onDelete, cardBg, ca
   const columnWidth = dims.columnCount ? dims.width / dims.columnCount : dims.width;
   const rowHeight = 360;
 
-  const itemData = { cards, columnCount: dims.columnCount, onSelect, onEdit, onDelete, cardBg, cardBorder };
+  const escapeRegExp = s => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  const highlightText = (text, q) => {
+    if (!q) return text;
+    const regex = new RegExp(`(${escapeRegExp(q)})`, 'ig');
+    const parts = String(text).split(regex);
+    return parts.map((part, i) => (i % 2 === 1 ? <mark key={i}>{part}</mark> : part));
+  };
+
+  const itemData = { cards, columnCount: dims.columnCount, onSelect, onEdit, onDelete, cardBg, cardBorder, highlight, highlightText };
 
   const Cell = ({ columnIndex, rowIndex, style, data }) => {
     const index = rowIndex * data.columnCount + columnIndex;
@@ -51,14 +59,41 @@ export default function CardGrid({ cards, onSelect, onEdit, onDelete, cardBg, ca
             borderColor: card.tags[0] ? tagColor(card.tags[0]) : data.cardBorder,
           }}
           onClick={() => data.onSelect(card)}
+          role="button"
+          tabIndex={0}
+          aria-label={`View ${card.title}`}
+          onKeyDown={e => {
+            if (e.key === 'Enter' || e.key === ' ') {
+              e.preventDefault();
+              data.onSelect(card);
+            }
+          }}
         >
-          <div className="absolute top-1 right-1 space-x-1 opacity-0 group-hover:opacity-100">
-            <button onClick={e => { e.stopPropagation(); data.onEdit && data.onEdit(card); }} className="text-xs">✏️</button>
-            <button onClick={e => { e.stopPropagation(); data.onDelete && data.onDelete(card.id); }} className="text-xs">🗑️</button>
+          <div className="absolute top-1 right-1 space-x-1 opacity-0 group-hover:opacity-100 group-focus-within:opacity-100">
+            <button
+              aria-label={`Edit ${card.title}`}
+              onClick={e => {
+                e.stopPropagation();
+                data.onEdit && data.onEdit(card);
+              }}
+              className="text-xs"
+            >
+              ✏️
+            </button>
+            <button
+              aria-label={`Delete ${card.title}`}
+              onClick={e => {
+                e.stopPropagation();
+                data.onDelete && data.onDelete(card.id);
+              }}
+              className="text-xs"
+            >
+              🗑️
+            </button>
           </div>
           <h3 className="text-lg font-semibold mb-2 flex items-center">
             <span className="mr-1">{typeIcons[card.contentType || card.type || 'text'] || '📝'}</span>
-            {card.title}
+            {data.highlightText(card.title, data.highlight)}
           </h3>
           {card.illustration && (
             <img src={card.illustration} alt="illustration" className="mb-2" />
@@ -80,7 +115,7 @@ export default function CardGrid({ cards, onSelect, onEdit, onDelete, cardBg, ca
               )}
             </div>
           )}
-          <p>{card.description}</p>
+          <p>{data.highlightText(card.description || '', data.highlight)}</p>
           {card.summary && (
             <p className="text-sm text-gray-600 dark:text-gray-400">{card.summary}</p>
           )}

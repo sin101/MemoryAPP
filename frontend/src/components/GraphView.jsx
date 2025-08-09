@@ -2,11 +2,13 @@ import React, { useCallback, useMemo, useState } from 'react';
 import ReactFlow, { Background, Controls } from 'reactflow';
 import 'reactflow/dist/style.css';
 import { tagColor } from '../tagColors';
+import Modal from './Modal';
 
 export default function GraphView({ cards, links, onLink, onLinkEdit, cardBg, cardBorder }) {
   const [deckFilter, setDeckFilter] = useState('');
   const [tagFilter, setTagFilter] = useState('');
   const [linkFilter, setLinkFilter] = useState('');
+  const [modalData, setModalData] = useState(null);
   const [positions, setPositions] = useState(() => {
     try {
       return JSON.parse(localStorage.getItem('graph-positions') || '{}');
@@ -57,27 +59,33 @@ export default function GraphView({ cards, links, onLink, onLinkEdit, cardBg, ca
 
   const handleConnect = useCallback(
     params => {
-      const type = prompt('Link type (e.g., inspires, completes)', 'related');
-      if (!type) return;
-      const annotation = prompt('Annotation');
-      if (onLink) {
-        onLink(params.source, params.target, type, annotation);
-      }
+      setModalData({ mode: 'add', source: params.source, target: params.target, type: 'related', annotation: '' });
     },
-    [onLink]
+    []
   );
 
   const handleEdgeClick = useCallback(
     (_, edge) => {
-      const type = prompt('Edit link type', edge.data?.type || edge.label || '');
-      if (type === null) return;
-      const annotation = prompt('Edit annotation', edge.data?.annotation || '');
-      if (annotation !== null && onLinkEdit) {
-        onLinkEdit(edge.id, type, annotation);
-      }
+      setModalData({
+        mode: 'edit',
+        edgeId: edge.id,
+        type: edge.data?.type || edge.label || '',
+        annotation: edge.data?.annotation || ''
+      });
     },
-    [onLinkEdit]
+    []
   );
+
+  const handleModalSave = () => {
+    if (!modalData) return;
+    if (modalData.mode === 'add' && onLink) {
+      onLink(modalData.source, modalData.target, modalData.type, modalData.annotation);
+    }
+    if (modalData.mode === 'edit' && onLinkEdit) {
+      onLinkEdit(modalData.edgeId, modalData.type, modalData.annotation);
+    }
+    setModalData(null);
+  };
 
   const deckOptions = Array.from(new Set(cards.flatMap(c => c.decks || [])));
   const tagOptions = Array.from(new Set(cards.flatMap(c => c.tags || [])));
@@ -149,6 +157,45 @@ export default function GraphView({ cards, links, onLink, onLinkEdit, cardBg, ca
           <Controls />
         </ReactFlow>
       </div>
+      {modalData && (
+        <Modal
+          title={modalData.mode === 'add' ? 'Create Link' : 'Edit Link'}
+          onClose={() => setModalData(null)}
+        >
+          <form
+            onSubmit={e => {
+              e.preventDefault();
+              handleModalSave();
+            }}
+          >
+            <label className="block mb-2">
+              <span className="block mb-1">Link type</span>
+              <input
+                className="border px-2 w-full bg-white dark:bg-gray-700"
+                value={modalData.type}
+                onChange={e => setModalData(d => ({ ...d, type: e.target.value }))}
+                autoFocus
+              />
+            </label>
+            <label className="block mb-2">
+              <span className="block mb-1">Annotation</span>
+              <input
+                className="border px-2 w-full bg-white dark:bg-gray-700"
+                value={modalData.annotation}
+                onChange={e => setModalData(d => ({ ...d, annotation: e.target.value }))}
+              />
+            </label>
+            <div className="flex justify-end space-x-2 mt-4">
+              <button type="button" className="border px-3 py-1" onClick={() => setModalData(null)}>
+                Cancel
+              </button>
+              <button type="submit" className="bg-blue-500 text-white px-3 py-1">
+                Save
+              </button>
+            </div>
+          </form>
+        </Modal>
+      )}
     </div>
   );
 }

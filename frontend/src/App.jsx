@@ -306,6 +306,14 @@ export default function App() {
     return acc;
   }, {});
   const tagOptions = Array.from(new Set(cards.flatMap(c => c.tags || [])));
+  const suggestions = useMemo(() => {
+    if (!query.trim()) return [];
+    const titleMatches = fuse.search(query.trim()).slice(0, 5).map(r => r.item.title);
+    const tagMatches = cards
+      .flatMap(c => c.tags || [])
+      .filter(t => t.toLowerCase().includes(query.toLowerCase()));
+    return Array.from(new Set([...titleMatches, ...tagMatches])).slice(0, 5);
+  }, [query, fuse, cards]);
 
   const selectCard = card => {
     setSelected(card);
@@ -516,14 +524,41 @@ export default function App() {
       <DeckSidebar decks={decks} current={deckFilter} onSelect={setDeckFilter} />
       <div className="p-4 flex-1">
         <div className="mb-4 flex items-center space-x-2">
-          <input
-            type="text"
-            placeholder="Search cards..."
-            value={query}
-            onChange={e => setQuery(e.target.value)}
-            className="border p-2 flex-1 max-w-md"
-          />
+          <label htmlFor="search" className="sr-only">Search cards</label>
+          <div className="relative flex-1 max-w-md">
+            <input
+              id="search"
+              type="text"
+              placeholder="Search cards..."
+              value={query}
+              onChange={e => setQuery(e.target.value)}
+              className="border p-2 w-full"
+              aria-autocomplete="list"
+              aria-controls="search-suggestions"
+            />
+            {suggestions.length > 0 && (
+              <ul
+                id="search-suggestions"
+                role="listbox"
+                className="absolute z-10 bg-white dark:bg-gray-800 border mt-1 w-full max-h-40 overflow-auto"
+              >
+                {suggestions.map(s => (
+                  <li key={s}>
+                    <button
+                      type="button"
+                      className="w-full text-left px-2 py-1 hover:bg-gray-100 dark:hover:bg-gray-700"
+                      onClick={() => setQuery(s)}
+                    >
+                      {s}
+                    </button>
+                  </li>
+                ))}
+              </ul>
+            )}
+          </div>
+          <label htmlFor="tag-filter" className="sr-only">Filter by tag</label>
           <select
+            id="tag-filter"
             value={tagFilter}
             onChange={e => setTagFilter(e.target.value)}
             className="border p-2"
@@ -611,6 +646,7 @@ export default function App() {
             onDelete={deleteCard}
             cardBg={cardBg}
             cardBorder={cardBorder}
+            highlight={query}
           />
         )}
         <div className="mt-6">
