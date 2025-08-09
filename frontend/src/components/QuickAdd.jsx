@@ -4,6 +4,9 @@ export default function QuickAdd({ onAdd, initial, aiEnabled }) {
   const [text, setText] = useState(initial || '');
   const [decksInput, setDecksInput] = useState('');
   const [pending, setPending] = useState(null);
+  const [loading, setLoading] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState(null);
   React.useEffect(() => {
     setText(initial || '');
   }, [initial]);
@@ -17,28 +20,32 @@ export default function QuickAdd({ onAdd, initial, aiEnabled }) {
 
   const previewText = async () => {
     if (text.trim()) {
+      setLoading(true);
+      setError(null);
       const data = {
         title: text.slice(0, 20),
         description: text,
         type: 'text',
         decks: parseDecks(decksInput),
       };
-        if (aiEnabled) {
-          try {
-            const res = await fetch('/api/illustrate', {
-              method: 'POST',
-              headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({ prompt: text })
-            });
-            const json = await res.json();
-            if (json.image) {
-              data.illustration = json.image;
-            }
-          } catch (e) {
-            console.error(e);
+      if (aiEnabled) {
+        try {
+          const res = await fetch('/api/illustrate', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ prompt: text })
+          });
+          const json = await res.json();
+          if (json.image) {
+            data.illustration = json.image;
           }
+        } catch (e) {
+          console.error(e);
+          setError('Failed to generate illustration.');
         }
+      }
       setPending(data);
+      setLoading(false);
     }
   };
 
@@ -97,9 +104,11 @@ export default function QuickAdd({ onAdd, initial, aiEnabled }) {
 
   const save = async () => {
     if (!pending) return;
-    if (pending.type === 'video' && pending.video) {
-      const base64 = pending.video.split(',')[1];
-      try {
+    setSaving(true);
+    setError(null);
+    try {
+      if (pending.type === 'video' && pending.video) {
+        const base64 = pending.video.split(',')[1];
         const res = await fetch('/api/video-note', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
@@ -107,12 +116,8 @@ export default function QuickAdd({ onAdd, initial, aiEnabled }) {
         });
         const card = await res.json();
         onAdd({ ...card, video: pending.video });
-      } catch (e) {
-        console.error(e);
-      }
-    } else if (pending.type === 'audio' && pending.audio) {
-      const base64 = pending.audio.split(',')[1];
-      try {
+      } else if (pending.type === 'audio' && pending.audio) {
+        const base64 = pending.audio.split(',')[1];
         const res = await fetch('/api/audio-note', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
@@ -125,11 +130,7 @@ export default function QuickAdd({ onAdd, initial, aiEnabled }) {
         });
         const card = await res.json();
         onAdd({ ...card, audio: pending.audio });
-      } catch (e) {
-        console.error(e);
-      }
-    } else if (pending.type === 'text') {
-      try {
+      } else if (pending.type === 'text') {
         const res = await fetch('/api/cards', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
@@ -137,16 +138,18 @@ export default function QuickAdd({ onAdd, initial, aiEnabled }) {
         });
         const card = await res.json();
         onAdd(card);
-      } catch (e) {
-        console.error(e);
+      } else {
         onAdd(pending);
       }
-    } else {
-      onAdd(pending);
+      setPending(null);
+      setText('');
+      setDecksInput('');
+    } catch (e) {
+      console.error(e);
+      setError('Failed to save note.');
+    } finally {
+      setSaving(false);
     }
-    setPending(null);
-    setText('');
-    setDecksInput('');
   };
 
   const cancel = () => {
@@ -182,15 +185,21 @@ export default function QuickAdd({ onAdd, initial, aiEnabled }) {
         )}
         <div className="mt-2 space-x-2">
           <button
-            className="bg-blue-500 text-white px-3 py-1"
+            className="bg-blue-500 text-white px-3 py-1 disabled:opacity-50"
             onClick={save}
+            disabled={saving}
           >
-            Save
+            {saving ? 'Saving...' : 'Save'}
           </button>
-          <button className="px-3 py-1 border" onClick={cancel}>
+          <button
+            className="px-3 py-1 border"
+            onClick={cancel}
+            disabled={saving}
+          >
             Cancel
           </button>
         </div>
+        {error && <p className="text-red-600 mt-2">{error}</p>}
       </div>
     );
   }
@@ -205,24 +214,34 @@ export default function QuickAdd({ onAdd, initial, aiEnabled }) {
       <textarea
         className="border p-2 w-full mb-2"
         placeholder="Quick add..."
+        aria-label="Quick add"
         value={text}
         onChange={e => setText(e.target.value)}
       />
       <input
         className="border p-2 w-full mb-2"
         placeholder="Decks (comma separated)"
+        aria-label="Decks (comma separated)"
         value={decksInput}
         onChange={e => setDecksInput(e.target.value)}
       />
       <div className="flex space-x-2">
         <button
-          className="bg-blue-500 text-white px-3 py-1"
+          className="bg-blue-500 text-white px-3 py-1 disabled:opacity-50"
           onClick={previewText}
+          disabled={loading}
         >
-          Preview
+          {loading ? 'Loading...' : 'Preview'}
         </button>
-        <input ref={fileRef} type="file" accept="image/*,video/*,audio/*" onChange={handleFile} />
+        <input
+          ref={fileRef}
+          type="file"
+          accept="image/*,video/*,audio/*"
+          onChange={handleFile}
+          aria-label="Upload file"
+        />
       </div>
+      {error && <p className="text-red-600 mt-2">{error}</p>}
     </div>
   );
 }
