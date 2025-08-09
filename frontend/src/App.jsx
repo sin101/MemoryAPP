@@ -9,6 +9,22 @@ import Chatbot from './components/Chatbot';
 import ThemeSettings from './components/ThemeSettings';
 import CryptoJS from 'crypto-js';
 import { get, set } from 'idb-keyval';
+import { setTagPaletteCache } from './tagColors';
+import { openDB } from 'idb';
+
+const dbPromise = openDB('memory-store', 1, {
+  upgrade(db) {
+    if (!db.objectStoreNames.contains('cards')) {
+      db.createObjectStore('cards', { keyPath: 'id' });
+    }
+    if (!db.objectStoreNames.contains('links')) {
+      db.createObjectStore('links', { keyPath: 'id' });
+    }
+    if (!db.objectStoreNames.contains('usage')) {
+      db.createObjectStore('usage');
+    }
+  },
+});
 
 const defaultCards = [
   {
@@ -61,57 +77,113 @@ export default function App() {
   const [usage, setUsage] = useState({});
   const [theme, setTheme] = useState('light');
   const [tagPalette, setTagPalette] = useState({});
+  const [cardBg, setCardBg] = useState('#ffffff');
+  const [cardBorder, setCardBorder] = useState('#d1d5db');
   const importRef = useRef();
-
   const loadCards = async () => {
-    let raw = await get('cards');
-    if (!raw) return [];
-    try {
-      raw = decrypt(raw, encKey);
-      return JSON.parse(raw);
-    } catch {
-      return [];
-    }
+    const db = await dbPromise;
+    const store = db.transaction('cards').objectStore('cards');
+    const all = await store.getAll();
+    return all
+      .map(({ data }) => {
+        try {
+          return JSON.parse(decrypt(data, encKey));
+        } catch {
+          return null;
+        }
+      })
+      .filter(Boolean);
   };
 
   const saveCards = async list => {
-    let raw = JSON.stringify(list);
-    raw = encrypt(raw, encKey);
-    await set('cards', raw);
+    const db = await dbPromise;
+    const tx = db.transaction('cards', 'readwrite');
+    const store = tx.objectStore('cards');
+    await store.clear();
+    for (const card of list) {
+      const data = encrypt(JSON.stringify(card), encKey);
+      await store.put({ id: card.id, data });
+    }
   };
 
   const loadLinks = async () => {
-    let raw = await get('links');
-    if (!raw) return [];
-    try {
-      raw = decrypt(raw, encKey);
-      return JSON.parse(raw);
-    } catch {
-      return [];
-    }
+    const db = await dbPromise;
+    const store = db.transaction('links').objectStore('links');
+    const all = await store.getAll();
+    return all
+      .map(({ data }) => {
+        try {
+          return JSON.parse(decrypt(data, encKey));
+        } catch {
+          return null;
+        }
+      })
+      .filter(Boolean);
   };
 
   const saveLinks = async list => {
-    let raw = JSON.stringify(list);
-    raw = encrypt(raw, encKey);
-    await set('links', raw);
-  };
-
-  const loadUsage = async () => {
-    let raw = await get('usage');
-    if (!raw) return {};
-    try {
-      raw = decrypt(raw, encKey);
-      return JSON.parse(raw);
-    } catch {
-      return {};
+    const db = await dbPromise;
+    const tx = db.transaction('links', 'readwrite');
+    const store = tx.objectStore('links');
+    await store.clear();
+    for (const link of list) {
+      const data = encrypt(JSON.stringify(link), encKey);
+      await store.put({ id: link.id, data });
     }
   };
 
+  const loadUsage = async () => {
+    const db = await dbPromise;
+    const store = db.transaction('usage').objectStore('usage');
+    const keys = await store.getAllKeys();
+    const result = {};
+    for (const key of keys) {
+      const val = await store.get(key);
+      try {
+        result[key] = JSON.parse(decrypt(val, encKey));
+      } catch {
+        result[key] = 0;
+      }
+    }
+    return result;
+  };
+
   const saveUsage = async map => {
-    let raw = JSON.stringify(map);
-    raw = encrypt(raw, encKey);
-    await set('usage', raw);
+    const db = await dbPromise;
+    const tx = db.transaction('usage', 'readwrite');
+    const store = tx.objectStore('usage');
+    await store.clear();
+    for (const [key, val] of Object.entries(map)) {
+      const data = encrypt(JSON.stringify(val), encKey);
+      await store.put(data, key);
+    }
+  };
+
+  const migrateLocalStorage = async () => {
+    const db = await dbPromise;
+    const count = await db.count('cards');
+    if (count > 0) return;
+    const legacyCards = localStorage.getItem('cards');
+    const legacyLinks = localStorage.getItem('links');
+    const legacyUsage = localStorage.getItem('usage');
+    if (legacyCards) {
+      try {
+        await saveCards(JSON.parse(legacyCards));
+      } catch { /* ignore */ }
+      localStorage.removeItem('cards');
+    }
+    if (legacyLinks) {
+      try {
+        await saveLinks(JSON.parse(legacyLinks));
+      } catch { /* ignore */ }
+      localStorage.removeItem('links');
+    }
+    if (legacyUsage) {
+      try {
+        await saveUsage(JSON.parse(legacyUsage));
+      } catch { /* ignore */ }
+      localStorage.removeItem('usage');
+    }
   };
 
   useEffect(() => {
@@ -119,11 +191,19 @@ export default function App() {
     get('aiEnabled').then(v => setAiEnabled(v === undefined ? true : v));
     get('webSuggestionsEnabled').then(v => setWebSuggestionsEnabled(v === undefined ? true : v));
     get('theme').then(t => t && setTheme(t));
-    get('tagPalette').then(p => p && setTagPalette(p));
+    get('tagPalette').then(p => {
+      if (p) {
+        setTagPalette(p);
+        setTagPaletteCache(p);
+      }
+    });
+    get('cardBg').then(c => c && setCardBg(c));
+    get('cardBorder').then(c => c && setCardBorder(c));
   }, []);
 
   useEffect(() => {
     async function init() {
+      await migrateLocalStorage();
       try {
         const res = await fetch('/api/cards');
         if (res.ok) {
@@ -325,6 +405,7 @@ export default function App() {
       set('encryptionKey', k);
       saveCards(cards);
       saveLinks(links);
+      saveUsage(usage);
     }
   };
 
@@ -436,6 +517,17 @@ export default function App() {
           setTagPalette={p => {
             setTagPalette(p);
             set('tagPalette', p);
+            setTagPaletteCache(p);
+          }}
+          cardBg={cardBg}
+          setCardBg={c => {
+            setCardBg(c);
+            set('cardBg', c);
+          }}
+          cardBorder={cardBorder}
+          setCardBorder={c => {
+            setCardBorder(c);
+            set('cardBorder', c);
           }}
         />
         <QuickAdd onAdd={addCard} initial={quickAddInitial} aiEnabled={aiEnabled} />
@@ -445,7 +537,8 @@ export default function App() {
             links={links}
             onLink={handleLinkCreate}
             onLinkEdit={handleLinkEdit}
-            tagPalette={tagPalette}
+            cardBg={cardBg}
+            cardBorder={cardBorder}
           />
         ) : (
           <CardGrid
@@ -453,7 +546,8 @@ export default function App() {
             onSelect={selectCard}
             onEdit={editCard}
             onDelete={deleteCard}
-            tagPalette={tagPalette}
+            cardBg={cardBg}
+            cardBorder={cardBorder}
           />
         )}
         <div className="mt-6">

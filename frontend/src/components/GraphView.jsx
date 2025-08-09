@@ -3,7 +3,7 @@ import ReactFlow, { Background, Controls } from 'reactflow';
 import 'reactflow/dist/style.css';
 import { tagColor } from '../tagColors';
 
-export default function GraphView({ cards, links, onLink, onLinkEdit, tagPalette }) {
+export default function GraphView({ cards, links, onLink, onLinkEdit, cardBg, cardBorder }) {
   const [deckFilter, setDeckFilter] = useState('');
   const [tagFilter, setTagFilter] = useState('');
   const [linkFilter, setLinkFilter] = useState('');
@@ -27,13 +27,13 @@ export default function GraphView({ cards, links, onLink, onLinkEdit, tagPalette
           label: `${c.title}${c.decks?.length > 1 ? ' 🔁' : ''}`,
         },
         style: {
-          border: `2px solid ${c.tags[0] ? tagColor(c.tags[0], tagPalette) : '#d1d5db'}`,
+          border: `2px solid ${c.tags[0] ? tagColor(c.tags[0]) : cardBorder}`,
           padding: 10,
           borderRadius: 8,
-          background: '#fff'
+          background: cardBg
         }
       })),
-    [filtered, tagPalette]
+    [filtered, cardBg, cardBorder]
   );
   const edges = useMemo(
     () =>
@@ -82,7 +82,7 @@ export default function GraphView({ cards, links, onLink, onLinkEdit, tagPalette
         <select
           value={deckFilter}
           onChange={e => setDeckFilter(e.target.value)}
-          className="border px-2"
+          className="border px-2 bg-white dark:bg-gray-800"
         >
           <option value="">All Decks</option>
           {deckOptions.map(d => (
@@ -94,7 +94,7 @@ export default function GraphView({ cards, links, onLink, onLinkEdit, tagPalette
         <select
           value={tagFilter}
           onChange={e => setTagFilter(e.target.value)}
-          className="border px-2"
+          className="border px-2 bg-white dark:bg-gray-800"
         >
           <option value="">All Tags</option>
           {tagOptions.map(t => (
@@ -106,7 +106,7 @@ export default function GraphView({ cards, links, onLink, onLinkEdit, tagPalette
         <select
           value={linkFilter}
           onChange={e => setLinkFilter(e.target.value)}
-          className="border px-2"
+          className="border px-2 bg-white dark:bg-gray-800"
         >
           <option value="">All Link Types</option>
           {linkTypeOptions.map(t => (

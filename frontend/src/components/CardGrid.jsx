@@ -10,17 +10,20 @@ const typeIcons = {
   audio: '🎤',
 };
 
-export default function CardGrid({ cards, onSelect, onEdit, onDelete, tagPalette }) {
+export default function CardGrid({ cards, onSelect, onEdit, onDelete, cardBg, cardBorder }) {
   if (!cards.length) {
-    return <p className="text-gray-500">No cards found</p>;
+    return <p className="text-gray-500 dark:text-gray-400">No cards found</p>;
   }
   return (
     <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-4">
       {cards.map(card => (
         <div
           key={card.id}
-          className="group relative bg-white border-4 p-4 rounded-xl cursor-pointer shadow-md hover:shadow-xl transform hover:-translate-y-1 hover:scale-105 transition"
-          style={{ borderColor: card.tags[0] ? tagColor(card.tags[0], tagPalette) : '#d1d5db' }}
+          className="group relative border-4 p-4 rounded-xl cursor-pointer shadow-md hover:shadow-xl transform hover:-translate-y-1 hover:scale-105 transition bg-white dark:bg-gray-800 dark:text-white"
+          style={{
+            backgroundColor: cardBg,
+            borderColor: card.tags[0] ? tagColor(card.tags[0]) : cardBorder,
+          }}
           onClick={() => onSelect(card)}
         >
           <div className="absolute top-1 right-1 space-x-1 opacity-0 group-hover:opacity-100">
@@ -44,17 +47,19 @@ export default function CardGrid({ cards, onSelect, onEdit, onDelete, tagPalette
             <div className="mb-2">
               <audio src={card.audio} controls className="w-full" />
               {card.contentType && (
-                <p className="text-sm text-gray-600">Format: {card.contentType}</p>
+                <p className="text-sm text-gray-600 dark:text-gray-400">Format: {card.contentType}</p>
               )}
               {typeof card.duration === 'number' && card.duration > 0 && (
-                <p className="text-sm text-gray-600">Duration: {card.duration.toFixed(1)}s</p>
+                <p className="text-sm text-gray-600 dark:text-gray-400">Duration: {card.duration.toFixed(1)}s</p>
               )}
             </div>
           )}
           <p>{card.description}</p>
-          {card.summary && <p className="text-sm text-gray-600">{card.summary}</p>}
+          {card.summary && (
+            <p className="text-sm text-gray-600 dark:text-gray-400">{card.summary}</p>
+          )}
           {card.createdAt && (
-            <p className="text-xs text-gray-500 mt-1">
+            <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">
               {new Date(card.createdAt).toLocaleDateString()}
             </p>
           )}
@@ -62,8 +67,8 @@ export default function CardGrid({ cards, onSelect, onEdit, onDelete, tagPalette
             {card.tags.map(tag => (
               <span
                 key={tag}
-                className="inline-block px-2 py-1 text-xs rounded text-gray-700"
-                style={{ backgroundColor: tagColor(tag, tagPalette) }}
+                className="inline-block px-2 py-1 text-xs rounded text-gray-700 dark:text-gray-200"
+                style={{ backgroundColor: tagColor(tag) }}
               >
                 {tag}
               </span>
@@ -74,7 +79,7 @@ export default function CardGrid({ cards, onSelect, onEdit, onDelete, tagPalette
               {card.decks.map(deck => (
                 <span
                   key={deck}
-                  className="inline-block bg-blue-100 text-blue-700 px-2 py-1 text-xs rounded"
+                  className="inline-block bg-blue-100 text-blue-700 dark:bg-blue-900 dark:text-blue-300 px-2 py-1 text-xs rounded"
                 >
                   {deck}
                 </span>
