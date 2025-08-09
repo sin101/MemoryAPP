@@ -1,6 +1,6 @@
-// @ts-nocheck
 import fs from 'fs';
 import path from 'path';
+import type Card from './card.js';
 
 export const HF_MODELS: Record<string, string> = {
   summarization: 'google/mt5-base',
@@ -51,7 +51,7 @@ export class SimpleAI {
     return text.split(/\s+/).slice(0, 20).join(' ');
   }
 
-  async summarizeCard(card: any): Promise<string> {
+  async summarizeCard(card: Card): Promise<string> {
     const text = card.content || card.source || card.title || '';
     return this.summarize(text);
   }
@@ -153,7 +153,7 @@ export class HuggingFaceAI {
     return text.split(/\s+/).slice(0, 20).join(' ');
   }
 
-  async summarizeCard(card) {
+  async summarizeCard(card: Card) {
     await this.ready;
     let text = card.content || card.source || card.title || '';
     if (card.type === 'audio' || card.type === 'video') {
@@ -334,7 +334,7 @@ export class TransformersAI {
     }
   }
 
-  async summarizeCard(card) {
+  async summarizeCard(card: Card) {
     const text = card.content || card.source || card.title || '';
     return this.summarize(text);
   }

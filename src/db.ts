@@ -1,38 +1,22 @@
 import sqlite3 from 'sqlite3';
+import { open, Database } from 'sqlite';
 import crypto from 'crypto';
-
-sqlite3.verbose();
-
-function run(db: sqlite3.Database, sql: string, params: any[] | object = []): Promise<void> {
-  return new Promise((resolve, reject) => {
-    (db as any).run(sql, params, (err: Error | null) => {
-      if (err) reject(err); else resolve();
-    });
-  });
-}
-
-function all<T = any>(db: sqlite3.Database, sql: string, params: any[] | object = []): Promise<T[]> {
-  return new Promise((resolve, reject) => {
-    (db as any).all(sql, params, (err: Error | null, rows: T[]) => {
-      if (err) reject(err); else resolve(rows);
-    });
-  });
-}
 
 class MemoryDB {
   path: string;
   key?: string;
-  db: sqlite3.Database;
+  db!: Database;
+  ready: Promise<void>;
 
   constructor(path: string, key?: string) {
     this.path = path;
     this.key = key;
-    this.db = new sqlite3.Database(this.path);
-    this.init();
+    this.ready = this.init();
   }
 
-  init() {
-    const sql = `CREATE TABLE IF NOT EXISTS cards (
+  private async init() {
+    this.db = await open({ filename: this.path, driver: sqlite3.Database });
+    await this.db.exec(`CREATE TABLE IF NOT EXISTS cards (
       id TEXT PRIMARY KEY,
       title TEXT,
       content TEXT,
@@ -45,23 +29,20 @@ class MemoryDB {
       summary TEXT,
       illustration TEXT,
       embedding TEXT
-    )`;
-    const linkSql = `CREATE TABLE IF NOT EXISTS links (
+    )`);
+    await this.db.exec(`CREATE TABLE IF NOT EXISTS links (
       id TEXT PRIMARY KEY,
       fromId TEXT,
       toId TEXT,
       type TEXT,
       annotation TEXT
-    )`;
-    this.db.serialize(() => {
-      this.db.run(sql);
-      this.db.run(linkSql);
-    });
+    )`);
+    await this.db.exec(`CREATE VIRTUAL TABLE IF NOT EXISTS card_search USING fts5(id, title, content, description)`);
   }
 
   async saveCard(card: any): Promise<void> {
-    await run(
-      this.db,
+    await this.ready;
+    await this.db.run(
       `INSERT OR REPLACE INTO cards (
         id, title, content, source, tags, decks, type, description,
         createdAt, summary, illustration, embedding
@@ -81,14 +62,28 @@ class MemoryDB {
         this.encrypt(card.embedding ? JSON.stringify(card.embedding) : '')
       ]
     );
+    await this.db.run(
+      `INSERT OR REPLACE INTO card_search (rowid, id, title, content, description)
+       VALUES ((SELECT rowid FROM card_search WHERE id = ?), ?, ?, ?, ?)`,
+      [
+        card.id,
+        card.id,
+        this.encrypt(card.title),
+        this.encrypt(card.content),
+        this.encrypt(card.description)
+      ]
+    );
   }
 
   async deleteCard(id: string): Promise<void> {
-    await run(this.db, 'DELETE FROM cards WHERE id = ?', [id]);
+    await this.ready;
+    await this.db.run('DELETE FROM cards WHERE id = ?', id);
+    await this.db.run('DELETE FROM card_search WHERE id = ?', id);
   }
 
   async loadCards(): Promise<any[]> {
-    const rows = await all<any>(this.db, 'SELECT * FROM cards');
+    await this.ready;
+    const rows = await this.db.all<any[]>('SELECT * FROM cards');
     return rows.map(r => ({
       id: r.id,
       title: this.decrypt(r.title),
@@ -106,19 +101,21 @@ class MemoryDB {
   }
 
   async saveLink(link: any): Promise<void> {
-    await run(
-      this.db,
+    await this.ready;
+    await this.db.run(
       'INSERT OR REPLACE INTO links (id, fromId, toId, type, annotation) VALUES (?, ?, ?, ?, ?)',
       [link.id, link.from, link.to, link.type, this.encrypt(link.annotation || '')]
     );
   }
 
   async deleteLink(id: string): Promise<void> {
-    await run(this.db, 'DELETE FROM links WHERE id = ?', [id]);
+    await this.ready;
+    await this.db.run('DELETE FROM links WHERE id = ?', id);
   }
 
   async loadLinks(): Promise<any[]> {
-    const rows = await all<any>(this.db, 'SELECT * FROM links');
+    await this.ready;
+    const rows = await this.db.all<any[]>('SELECT * FROM links');
     return rows.map(r => ({
       id: r.id,
       from: r.fromId,
@@ -151,8 +148,9 @@ class MemoryDB {
     }
   }
 
-  close() {
-    this.db.close();
+  async close() {
+    await this.ready;
+    await this.db.close();
   }
 }
 

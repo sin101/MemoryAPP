@@ -5,6 +5,17 @@ const MemoryApp = require('./src/app').default;
 const { fetchSuggestion, clearSuggestionCache } = require('./src/suggestions');
 const { SimpleAI } = require('./src/ai');
 
+process.env.RATE_LIMIT_MAX = 'oops';
+delete require.cache[require.resolve('./src/config')];
+assert.throws(() => require('./src/config'), /RATE_LIMIT_MAX/);
+delete process.env.RATE_LIMIT_MAX;
+delete require.cache[require.resolve('./src/config')];
+process.env.RATE_LIMIT_MAX = '42';
+const { config } = require('./src/config');
+assert.strictEqual(config.RATE_LIMIT_MAX, 42);
+delete process.env.RATE_LIMIT_MAX;
+delete require.cache[require.resolve('./src/config')];
+
 (async () => {
   const app = new MemoryApp({ ai: new SimpleAI() });
 

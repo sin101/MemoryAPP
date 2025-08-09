@@ -1,4 +1,3 @@
-// @ts-nocheck
 import Card from './card.js';
 import Deck from './deck.js';
 import Link from './link.js';
@@ -10,8 +9,11 @@ import { EventEmitter } from 'events';
 import { fetchSuggestion } from './suggestions.js';
 import crypto from 'crypto';
 import JSZip from 'jszip';
-import Logger from './logger.js';
+import { createLogger } from './logger.js';
 import Fuse from 'fuse.js';
+import { Worker } from 'worker_threads';
+import type { AppOptions, CardData } from './types.js';
+import { config } from './config.js';
 
 class MemoryApp extends EventEmitter {
   cards: Map<string, Card>;
@@ -30,8 +32,11 @@ class MemoryApp extends EventEmitter {
   ai: any;
   encryptionKey?: string;
   db: MemoryDB | null;
-  logger?: Logger;
-  constructor(options: any = {}) {
+  logger?: ReturnType<typeof createLogger>;
+  worker?: Worker;
+  workerSeq: number;
+  workerTasks: Map<number, { resolve: (v: any) => void; reject: (e: any) => void }>;
+  constructor(options: AppOptions = {}) {
     super();
     this.cards = new Map();
     this.decks = new Map();
@@ -50,25 +55,64 @@ class MemoryApp extends EventEmitter {
       this.ai = options.ai;
     } else if (hasLocalModels()) {
       this.ai = new TransformersAI();
-    } else if (process.env.HUGGINGFACE_API_KEY) {
-      this.ai = new HuggingFaceAI({ autoSelect: true });
+    } else if (config.HUGGINGFACE_API_KEY) {
+      this.ai = new HuggingFaceAI({ autoSelect: true, apiKey: config.HUGGINGFACE_API_KEY });
     } else {
       this.ai = new SimpleAI();
     }
     this.encryptionKey = options.encryptionKey;
     this.db = options.dbPath ? new MemoryDB(options.dbPath, options.encryptionKey) : null;
     if (this.db) {
-      this.loadFromDB();
+      this.db.ready.then(() => this.loadFromDB());
     }
     if (options.logPath) {
-      this.logger = new Logger(options.logPath);
-      this.on('error', err => this.logger.error(err.message));
-      this.on('cardCreated', c => this.logger.info(`cardCreated:${c.id}`));
-      process.on('uncaughtException', err => this.logger.error(`uncaught:${err.message}`));
+      this.logger = createLogger(options.logPath);
+      this.on('error', err => this.logger?.error(err.message));
+      this.on('cardCreated', c => this.logger?.info(`cardCreated:${c.id}`));
+      process.on('uncaughtException', err => this.logger?.error(`uncaught:${err.message}`));
+    }
+    this.workerSeq = 0;
+    this.workerTasks = new Map();
+    if (!options.ai) {
+      try {
+        this.worker = new Worker(path.join(__dirname, 'aiWorker.js'), {
+          workerData: { aiType: this.ai.constructor.name, apiKey: config.HUGGINGFACE_API_KEY }
+        });
+        this.worker.on('message', ({ id, result, error }) => {
+          const task = this.workerTasks.get(id);
+          if (!task) return;
+          if (error) task.reject(error); else task.resolve(result);
+          this.workerTasks.delete(id);
+        });
+        this.worker.unref();
+      } catch {
+        this.worker = undefined;
+      }
     }
   }
 
-  async createCard(data) {
+  private _runAI(action: string, payload: any): Promise<any> {
+    if (!this.worker) {
+      // Fallback to main-thread AI
+      switch (action) {
+        case 'embed':
+          return this.ai.embed ? this.ai.embed(payload) : Promise.resolve([]);
+        case 'summarizeCard':
+          return this.ai.summarizeCard ? this.ai.summarizeCard(payload) : this.ai.summarize(payload.content || payload.title || '');
+        case 'generateIllustration':
+          return this.ai.generateIllustration(payload);
+        default:
+          return Promise.resolve(null);
+      }
+    }
+    const id = ++this.workerSeq;
+    return new Promise((resolve, reject) => {
+      this.workerTasks.set(id, { resolve, reject });
+      this.worker!.postMessage({ id, action, payload });
+    });
+  }
+
+  async createCard(data: CardData) {
     if (!data.id) {
       data.id = String(this.nextId++);
     } else {
@@ -108,10 +152,10 @@ class MemoryApp extends EventEmitter {
   }
 
   enableLogging(path) {
-    this.logger = new Logger(path);
-    this.on('error', err => this.logger.error(err.message));
-    this.on('cardCreated', c => this.logger.info(`cardCreated:${c.id}`));
-    process.on('uncaughtException', err => this.logger.error(`uncaught:${err.message}`));
+    this.logger = createLogger(path);
+    this.on('error', err => this.logger?.error(err.message));
+    this.on('cardCreated', c => this.logger?.info(`cardCreated:${c.id}`));
+    process.on('uncaughtException', err => this.logger?.error(`uncaught:${err.message}`));
   }
 
   enrichCard(cardId) {
@@ -206,11 +250,11 @@ class MemoryApp extends EventEmitter {
   }
 
   async _processAndPersistCard(card) {
-    if (!card.embedding && this.aiEnabled && this.ai.embed) {
+    if (!card.embedding && this.aiEnabled) {
       const basis = card.content || card.source || card.title || '';
       if (basis) {
         try {
-          card.embedding = await this.ai.embed(basis);
+          card.embedding = await this._runAI('embed', basis);
         } catch (e) {
           this.emit('error', e);
         }
@@ -246,7 +290,7 @@ class MemoryApp extends EventEmitter {
     if (!ids) {
       return [];
     }
-    const results = [];
+    const results: Card[] = [];
     for (const id of ids) {
       const card = this.cards.get(id);
       if (card) {
@@ -340,7 +384,7 @@ class MemoryApp extends EventEmitter {
 
   _updateRecentDeck() {
     const cutoff = Date.now() - 7 * 24 * 60 * 60 * 1000;
-    const ids = new Set();
+    const ids = new Set<string>();
     for (const card of this.cards.values()) {
       if (new Date(card.createdAt).getTime() >= cutoff) {
         ids.add(card.id);
@@ -350,7 +394,7 @@ class MemoryApp extends EventEmitter {
   }
 
   _updateFrequentDeck() {
-    const ids = new Set(
+    const ids = new Set<string>(
       Array.from(this.usageStats.entries())
         .sort((a, b) => (b[1].count || 0) - (a[1].count || 0))
         .slice(0, 5)
@@ -360,7 +404,7 @@ class MemoryApp extends EventEmitter {
   }
 
   _updateUnseenDeck() {
-    const ids = new Set();
+    const ids = new Set<string>();
     for (const card of this.cards.values()) {
       const stat = this.usageStats.get(card.id);
       if (!stat || stat.count === 0) {
@@ -372,7 +416,7 @@ class MemoryApp extends EventEmitter {
 
   _updateStaleDeck() {
     const cutoff = Date.now() - 30 * 24 * 60 * 60 * 1000;
-    const ids = new Set();
+    const ids = new Set<string>();
     for (const card of this.cards.values()) {
       const stat = this.usageStats.get(card.id);
       if (!stat || !stat.lastOpened || stat.lastOpened < cutoff) {
@@ -409,9 +453,9 @@ class MemoryApp extends EventEmitter {
   _addToTagIndex(card) {
     for (const tag of card.tags) {
       if (!this.tagIndex.has(tag)) {
-        this.tagIndex.set(tag, new Set());
+        this.tagIndex.set(tag, new Set<string>());
       }
-      this.tagIndex.get(tag).add(card.id);
+      this.tagIndex.get(tag)!.add(card.id);
     }
   }
 
@@ -427,7 +471,7 @@ class MemoryApp extends EventEmitter {
     }
   }
 
-  _updateTagIndex(card, oldTags = new Set()) {
+  _updateTagIndex(card: Card, oldTags: Set<string> = new Set()) {
     for (const tag of oldTags) {
       if (!card.tags.has(tag)) {
         const set = this.tagIndex.get(tag);
@@ -454,7 +498,7 @@ class MemoryApp extends EventEmitter {
     if (!card) {
       return [];
     }
-    const pending = [];
+    const pending: Promise<any>[] = [];
     for (const tag of card.tags) {
       if (pending.length >= limit) {
         break;
@@ -478,7 +522,7 @@ class MemoryApp extends EventEmitter {
     const sorted = Array.from(counts.entries())
       .sort((a, b) => b[1] - a[1])
       .map(([tag]) => tag);
-    const pending = [];
+    const pending: Promise<any>[] = [];
     for (const tag of sorted) {
       if (pending.length >= limit) {
         break;
@@ -548,13 +592,13 @@ class MemoryApp extends EventEmitter {
 
   _indexLink(link) {
     if (!this.linksByCard.has(link.from)) {
-      this.linksByCard.set(link.from, new Set());
+      this.linksByCard.set(link.from, new Set<string>());
     }
-    this.linksByCard.get(link.from).add(link.id);
+    this.linksByCard.get(link.from)!.add(link.id);
     if (!this.linksByCard.has(link.to)) {
-      this.linksByCard.set(link.to, new Set());
+      this.linksByCard.set(link.to, new Set<string>());
     }
-    this.linksByCard.get(link.to).add(link.id);
+    this.linksByCard.get(link.to)!.add(link.id);
   }
 
   _unindexLink(link) {
@@ -622,12 +666,12 @@ class MemoryApp extends EventEmitter {
     return link;
   }
 
-  getLinks(cardId) {
+  getLinks(cardId: string) {
     const ids = this.linksByCard.get(cardId);
     if (!ids) {
       return [];
     }
-    const results = [];
+    const results: Link[] = [];
     for (const id of ids) {
       const link = this.links.get(id);
       if (link) {
@@ -637,12 +681,12 @@ class MemoryApp extends EventEmitter {
     return results;
   }
 
-  getLinkedCardIds(cardId) {
+  getLinkedCardIds(cardId: string) {
     const ids = this.linksByCard.get(cardId);
     if (!ids) {
       return [];
     }
-    const result = new Set();
+    const result = new Set<string>();
     for (const id of ids) {
       const link = this.links.get(id);
       if (link) {
@@ -652,7 +696,7 @@ class MemoryApp extends EventEmitter {
     return Array.from(result);
   }
 
-  removeLink(linkId) {
+  removeLink(linkId: string) {
     const link = this.links.get(linkId);
     const res = this.links.delete(linkId);
     if (res && link) {
@@ -665,10 +709,10 @@ class MemoryApp extends EventEmitter {
     return res;
   }
 
-  getGraph(options = {}) {
-    let deckName = null;
-    let tagFilter = null;
-    let linkTypeFilter = null;
+  getGraph(options: any = {}) {
+    let deckName: string | null = null;
+    let tagFilter: string | null = null;
+    let linkTypeFilter: string | null = null;
     if (typeof options === 'string') {
       deckName = options.toLowerCase();
     } else {
@@ -677,7 +721,7 @@ class MemoryApp extends EventEmitter {
       linkTypeFilter = options.linkType ? options.linkType.toLowerCase() : null;
     }
 
-    let cardIds;
+    let cardIds: Set<string>;
     if (deckName) {
       const deck = this.decks.get(deckName);
       if (!deck) {
@@ -688,7 +732,7 @@ class MemoryApp extends EventEmitter {
       cardIds = new Set(this.cards.keys());
     }
 
-    const nodes = [];
+    const nodes: any[] = [];
     for (const id of cardIds) {
       const card = this.cards.get(id);
       if (!card) {
@@ -705,10 +749,10 @@ class MemoryApp extends EventEmitter {
       });
     }
 
-    const includedIds = new Set(nodes.map(n => n.id));
+    const includedIds = new Set<string>(nodes.map((n: any) => n.id));
 
-    const edges = [];
-    const seen = new Set();
+    const edges: any[] = [];
+    const seen = new Set<string>();
     for (const id of includedIds) {
       const linkIds = this.linksByCard.get(id);
       if (!linkIds) {
@@ -742,12 +786,12 @@ class MemoryApp extends EventEmitter {
   }
 
   async processCard(card) {
-    const tasks = [];
+    const tasks: Array<[string, Promise<any>]> = [];
     if (!card.summary) {
-      tasks.push(['summary', this.summarizeCard(card)]);
+      tasks.push(['summary', this._runAI('summarizeCard', card)]);
     }
     if (!card.illustration) {
-      tasks.push(['illustration', this.generateIllustration(card.title)]);
+      tasks.push(['illustration', this._runAI('generateIllustration', card.title)]);
     }
     if (tasks.length === 0) {
       return;
@@ -757,7 +801,7 @@ class MemoryApp extends EventEmitter {
       const [key] = tasks[i];
       const r = results[i];
       if (r.status === 'fulfilled') {
-        card[key] = r.value;
+        (card as any)[key] = r.value;
       } else {
         this.emit('error', r.reason);
       }
@@ -879,7 +923,7 @@ class MemoryApp extends EventEmitter {
 
   static async importZipBuffer(buffer) {
     const zip = await JSZip.loadAsync(buffer);
-    const json = JSON.parse(await zip.file('data.json').async('string'));
+    const json = JSON.parse(await zip.file('data.json')!.async('string'));
     const app = MemoryApp.fromJSON(json);
     const dir = 'storage';
     await fs.promises.mkdir(dir, { recursive: true });
@@ -887,7 +931,7 @@ class MemoryApp extends EventEmitter {
       n => n.startsWith('media/') && !zip.files[n].dir
     );
     for (const name of media) {
-      const content = await zip.file(name).async('nodebuffer');
+      const content = await zip.file(name)!.async('nodebuffer');
       const fname = name.replace('media/', '');
       await fs.promises.writeFile(path.join(dir, fname), content);
     }
@@ -963,6 +1007,7 @@ class MemoryApp extends EventEmitter {
   }
 
   async loadFromDB() {
+    if (!this.db) return;
     const stored = await this.db.loadCards();
     for (const data of stored) {
       data.tags = data.tags.map(t => t.toLowerCase());
