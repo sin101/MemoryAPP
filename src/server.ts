@@ -6,17 +6,18 @@ import { promises as fs } from 'fs';
 import MemoryApp from './app.js';
 import { z } from 'zod';
 import { createServer } from 'http';
+import { config } from './config.js';
 
-const ENC_KEY = process.env.ENCRYPTION_KEY || '';
-export const app = new MemoryApp({ dbPath: process.env.DB_PATH, encryptionKey: ENC_KEY });
-const API_TOKEN = process.env.API_TOKEN || '';
+const ENC_KEY = config.ENCRYPTION_KEY || '';
+export const app = new MemoryApp({ dbPath: config.DB_PATH, encryptionKey: ENC_KEY, logPath: config.LOG_PATH });
+const API_TOKEN = config.API_TOKEN || '';
 
 const api = express();
 api.use(helmet());
 api.use(
   rateLimit({
     windowMs: 60 * 1000,
-    max: Number(process.env.RATE_LIMIT_MAX || 100)
+    max: config.RATE_LIMIT_MAX || 100
   })
 );
 api.use(cors());

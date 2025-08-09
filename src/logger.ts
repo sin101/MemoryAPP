@@ -1,24 +1,6 @@
-import fs from 'fs';
+import pino from 'pino';
 
-class Logger {
-  path: string;
-
-  constructor(path: string) {
-    this.path = path;
-  }
-
-  _write(level: string, msg: string) {
-    const line = `[${new Date().toISOString()}] ${level}: ${msg}\n`;
-    fs.appendFile(this.path, line, () => {});
-  }
-
-  info(msg: string) {
-    this._write('INFO', msg);
-  }
-
-  error(msg: string) {
-    this._write('ERROR', msg);
-  }
+export function createLogger(path?: string) {
+  const destination = path ? pino.destination(path) : undefined;
+  return pino({ level: process.env.LOG_LEVEL || 'info' }, destination);
 }
-
-export default Logger;
