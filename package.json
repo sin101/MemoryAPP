@@ -8,7 +8,8 @@
     "start": "node src/server.js",
     "frontend:dev": "npm run dev --prefix frontend",
     "frontend:build": "npm run build --prefix frontend",
-    "frontend:preview": "npm run preview --prefix frontend"
+    "frontend:preview": "npm run preview --prefix frontend",
+    "desktop:pack": "npm run frontend:build && npx electron-packager . MemoryAPP --out=dist-desktop --overwrite"
   },
   "keywords": [],
   "author": "",
@@ -22,5 +23,9 @@
     "fast-xml-parser": "^4.5.3",
     "@xenova/transformers": "^2.17.2",
     "jszip": "^3.10.1"
+  },
+  "devDependencies": {
+    "electron": "^29.0.0",
+    "electron-packager": "^17.1.2"
   }
 }

@@ -6,6 +6,9 @@ import QuickAdd from './components/QuickAdd';
 import DeckSidebar from './components/DeckSidebar';
 import GraphView from './components/GraphView';
 import Chatbot from './components/Chatbot';
+import ThemeSettings from './components/ThemeSettings';
+import CryptoJS from 'crypto-js';
+import { get, set } from 'idb-keyval';
 
 const defaultCards = [
   {
@@ -31,17 +34,16 @@ const defaultCards = [
 export default function App() {
   const encrypt = (str, key) => {
     if (!key) return str;
-    const data = new TextEncoder().encode(str);
-    const keyData = new TextEncoder().encode(key);
-    const result = data.map((b, i) => b ^ keyData[i % keyData.length]);
-    return btoa(String.fromCharCode(...result));
+    return CryptoJS.AES.encrypt(str, key).toString();
   };
   const decrypt = (str, key) => {
     if (!key) return str;
-    const data = Uint8Array.from(atob(str), c => c.charCodeAt(0));
-    const keyData = new TextEncoder().encode(key);
-    const result = data.map((b, i) => b ^ keyData[i % keyData.length]);
-    return new TextDecoder().decode(result);
+    try {
+      const bytes = CryptoJS.AES.decrypt(str, key);
+      return bytes.toString(CryptoJS.enc.Utf8);
+    } catch {
+      return str;
+    }
   };
   const [cards, setCards] = useState([]);
   const [query, setQuery] = useState('');
@@ -51,28 +53,18 @@ export default function App() {
   const [showGraph, setShowGraph] = useState(false);
   const [quickAddInitial, setQuickAddInitial] = useState('');
   const [links, setLinks] = useState([]);
-  const [webSuggestionsEnabled, setWebSuggestionsEnabled] = useState(() => {
-    try {
-      return JSON.parse(localStorage.getItem('webSuggestionsEnabled') || 'true');
-    } catch {
-      return true;
-    }
-  });
-  const [aiEnabled, setAiEnabled] = useState(() => {
-    try {
-      return JSON.parse(localStorage.getItem('aiEnabled') || 'true');
-    } catch {
-      return true;
-    }
-  });
+  const [webSuggestionsEnabled, setWebSuggestionsEnabled] = useState(true);
+  const [aiEnabled, setAiEnabled] = useState(true);
   const [useSemantic, setUseSemantic] = useState(false);
   const [semanticResults, setSemanticResults] = useState([]);
-  const [encKey, setEncKey] = useState(() => localStorage.getItem('encryptionKey') || '');
-  const [usage, setUsage] = useState(() => loadUsage());
+  const [encKey, setEncKey] = useState('');
+  const [usage, setUsage] = useState({});
+  const [theme, setTheme] = useState('light');
+  const [tagPalette, setTagPalette] = useState({});
   const importRef = useRef();
 
-  const loadCards = () => {
-    let raw = localStorage.getItem('cards');
+  const loadCards = async () => {
+    let raw = await get('cards');
     if (!raw) return [];
     try {
       raw = decrypt(raw, encKey);
@@ -82,14 +74,14 @@ export default function App() {
     }
   };
 
-  const saveCards = list => {
+  const saveCards = async list => {
     let raw = JSON.stringify(list);
     raw = encrypt(raw, encKey);
-    localStorage.setItem('cards', raw);
+    await set('cards', raw);
   };
 
-  const loadLinks = () => {
-    let raw = localStorage.getItem('links');
+  const loadLinks = async () => {
+    let raw = await get('links');
     if (!raw) return [];
     try {
       raw = decrypt(raw, encKey);
@@ -99,14 +91,14 @@ export default function App() {
     }
   };
 
-  const saveLinks = list => {
+  const saveLinks = async list => {
     let raw = JSON.stringify(list);
     raw = encrypt(raw, encKey);
-    localStorage.setItem('links', raw);
+    await set('links', raw);
   };
 
-  const loadUsage = () => {
-    let raw = localStorage.getItem('usage');
+  const loadUsage = async () => {
+    let raw = await get('usage');
     if (!raw) return {};
     try {
       raw = decrypt(raw, encKey);
@@ -116,11 +108,19 @@ export default function App() {
     }
   };
 
-  const saveUsage = map => {
+  const saveUsage = async map => {
     let raw = JSON.stringify(map);
     raw = encrypt(raw, encKey);
-    localStorage.setItem('usage', raw);
+    await set('usage', raw);
   };
+
+  useEffect(() => {
+    get('encryptionKey').then(k => setEncKey(k || ''));
+    get('aiEnabled').then(v => setAiEnabled(v === undefined ? true : v));
+    get('webSuggestionsEnabled').then(v => setWebSuggestionsEnabled(v === undefined ? true : v));
+    get('theme').then(t => t && setTheme(t));
+    get('tagPalette').then(p => p && setTagPalette(p));
+  }, []);
 
   useEffect(() => {
     async function init() {
@@ -133,19 +133,19 @@ export default function App() {
             return c;
           });
           setCards(cs);
-          saveCards(cs);
+          await saveCards(cs);
           setLinks(data.links || []);
-          saveLinks(data.links || []);
-          setUsage(loadUsage());
+          await saveLinks(data.links || []);
+          setUsage(await loadUsage());
           return;
         }
-      } catch (e) {
+      } catch {
         // ignore
       }
-      let stored = loadCards();
+      let stored = await loadCards();
       if (!stored.length) {
         stored = defaultCards;
-        saveCards(stored);
+        await saveCards(stored);
       }
       stored = stored.map(c => {
         if (c.deck && !c.decks) {
@@ -156,10 +156,11 @@ export default function App() {
         return c;
       });
       setCards(stored);
-      setLinks(loadLinks());
-      setUsage(loadUsage());
+      setLinks(await loadLinks());
+      setUsage(await loadUsage());
     }
     init();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [encKey]);
   useEffect(() => {
     if (aiEnabled && useSemantic && query.trim()) {
@@ -177,8 +178,8 @@ export default function App() {
   }, [aiEnabled, query, useSemantic]);
 
   useEffect(() => {
-    localStorage.setItem('aiEnabled', JSON.stringify(aiEnabled));
-    localStorage.setItem('webSuggestionsEnabled', JSON.stringify(webSuggestionsEnabled));
+    set('aiEnabled', aiEnabled);
+    set('webSuggestionsEnabled', webSuggestionsEnabled);
     fetch('/api/settings', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -188,6 +189,9 @@ export default function App() {
       setUseSemantic(false);
     }
   }, [aiEnabled, webSuggestionsEnabled]);
+  useEffect(() => {
+    set('theme', theme);
+  }, [theme]);
   const fuse = useMemo(() => new Fuse(cards, { keys: ['title', 'description', 'tags'], threshold: 0.3 }), [cards]);
   const filtered = useMemo(() => {
     const base = useSemantic && query.trim()
@@ -318,7 +322,7 @@ export default function App() {
     const k = prompt('Set encryption key', encKey);
     if (k !== null) {
       setEncKey(k);
-      localStorage.setItem('encryptionKey', k);
+      set('encryptionKey', k);
       saveCards(cards);
       saveLinks(links);
     }
@@ -342,6 +346,7 @@ export default function App() {
       saveCards(next);
       return next;
     });
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [usage]);
 
   const exportData = () => {
@@ -378,7 +383,7 @@ export default function App() {
   };
 
   return (
-    <div className="flex">
+    <div className={theme === 'dark' ? 'dark flex bg-gray-900 text-white min-h-screen' : 'flex min-h-screen'}>
       <DeckSidebar decks={decks} current={deckFilter} onSelect={setDeckFilter} />
       <div className="p-4 flex-1">
         <div className="mb-4 flex items-center space-x-2">
@@ -424,6 +429,15 @@ export default function App() {
           <button className="border px-2" onClick={() => importRef.current.click()}>Import</button>
           <input type="file" ref={importRef} onChange={importData} className="hidden" />
         </div>
+        <ThemeSettings
+          theme={theme}
+          setTheme={setTheme}
+          tagPalette={tagPalette}
+          setTagPalette={p => {
+            setTagPalette(p);
+            set('tagPalette', p);
+          }}
+        />
         <QuickAdd onAdd={addCard} initial={quickAddInitial} aiEnabled={aiEnabled} />
         {showGraph ? (
           <GraphView
@@ -431,6 +445,7 @@ export default function App() {
             links={links}
             onLink={handleLinkCreate}
             onLinkEdit={handleLinkEdit}
+            tagPalette={tagPalette}
           />
         ) : (
           <CardGrid
@@ -438,6 +453,7 @@ export default function App() {
             onSelect={selectCard}
             onEdit={editCard}
             onDelete={deleteCard}
+            tagPalette={tagPalette}
           />
         )}
         <div className="mt-6">

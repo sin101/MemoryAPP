@@ -45,15 +45,17 @@ export default function QuickAdd({ onAdd, initial, aiEnabled }) {
   const prepareFile = file => {
     const isImage = file.type.startsWith('image/');
     const isVideo = file.type.startsWith('video/');
+    const isAudio = file.type.startsWith('audio/');
     const reader = new FileReader();
     reader.onload = () => {
       setPending({
         title: file.name,
         source: file.name,
-        type: isImage ? 'image' : isVideo ? 'video' : 'file',
+        type: isImage ? 'image' : isVideo ? 'video' : isAudio ? 'audio' : 'file',
         decks: parseDecks(decksInput),
         image: isImage ? reader.result : undefined,
         video: isVideo ? reader.result : undefined,
+        audio: isAudio ? reader.result : undefined,
       });
     };
     reader.readAsDataURL(file);
@@ -98,6 +100,19 @@ export default function QuickAdd({ onAdd, initial, aiEnabled }) {
       } catch (e) {
         console.error(e);
       }
+    } else if (pending.type === 'audio' && pending.audio) {
+      const base64 = pending.audio.split(',')[1];
+      try {
+        const res = await fetch('/api/audio-note', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ title: pending.title, audio: base64 })
+        });
+        const card = await res.json();
+        onAdd({ ...card, audio: pending.audio });
+      } catch (e) {
+        console.error(e);
+      }
     } else if (pending.type === 'text') {
       try {
         const res = await fetch('/api/cards', {
@@ -132,6 +147,9 @@ export default function QuickAdd({ onAdd, initial, aiEnabled }) {
         )}
         {pending.type === 'video' && pending.video && (
           <video src={pending.video} controls className="mb-2 max-h-40" />
+        )}
+        {pending.type === 'audio' && pending.audio && (
+          <audio src={pending.audio} controls className="mb-2 w-full" />
         )}
         {pending.type === 'text' && pending.illustration && (
           <img src={pending.illustration} alt="illustration" className="mb-2 max-h-40" />
@@ -180,7 +198,7 @@ export default function QuickAdd({ onAdd, initial, aiEnabled }) {
         >
           Preview
         </button>
-        <input ref={fileRef} type="file" onChange={handleFile} />
+        <input ref={fileRef} type="file" accept="image/*,video/*,audio/*" onChange={handleFile} />
       </div>
     </div>
   );

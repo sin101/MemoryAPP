@@ -3,7 +3,7 @@ import ReactFlow, { Background, Controls } from 'reactflow';
 import 'reactflow/dist/style.css';
 import { tagColor } from '../tagColors';
 
-export default function GraphView({ cards, links, onLink, onLinkEdit }) {
+export default function GraphView({ cards, links, onLink, onLinkEdit, tagPalette }) {
   const [deckFilter, setDeckFilter] = useState('');
   const [tagFilter, setTagFilter] = useState('');
   const [linkFilter, setLinkFilter] = useState('');
@@ -27,13 +27,13 @@ export default function GraphView({ cards, links, onLink, onLinkEdit }) {
           label: `${c.title}${c.decks?.length > 1 ? ' 🔁' : ''}`,
         },
         style: {
-          border: `2px solid ${c.tags[0] ? tagColor(c.tags[0]) : '#d1d5db'}`,
+          border: `2px solid ${c.tags[0] ? tagColor(c.tags[0], tagPalette) : '#d1d5db'}`,
           padding: 10,
           borderRadius: 8,
           background: '#fff'
         }
       })),
-    [filtered]
+    [filtered, tagPalette]
   );
   const edges = useMemo(
     () =>

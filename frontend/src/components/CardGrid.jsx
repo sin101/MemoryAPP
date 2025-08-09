@@ -7,9 +7,10 @@ const typeIcons = {
   link: '🔗',
   file: '📁',
   video: '🎬',
+  audio: '🎤',
 };
 
-export default function CardGrid({ cards, onSelect, onEdit, onDelete }) {
+export default function CardGrid({ cards, onSelect, onEdit, onDelete, tagPalette }) {
   if (!cards.length) {
     return <p className="text-gray-500">No cards found</p>;
   }
@@ -19,7 +20,7 @@ export default function CardGrid({ cards, onSelect, onEdit, onDelete }) {
         <div
           key={card.id}
           className="group relative bg-white border-4 p-4 rounded-xl cursor-pointer shadow-md hover:shadow-xl transform hover:-translate-y-1 hover:scale-105 transition"
-          style={{ borderColor: card.tags[0] ? tagColor(card.tags[0]) : '#d1d5db' }}
+          style={{ borderColor: card.tags[0] ? tagColor(card.tags[0], tagPalette) : '#d1d5db' }}
           onClick={() => onSelect(card)}
         >
           <div className="absolute top-1 right-1 space-x-1 opacity-0 group-hover:opacity-100">
@@ -39,6 +40,9 @@ export default function CardGrid({ cards, onSelect, onEdit, onDelete }) {
           {card.type === 'video' && card.video && (
             <video src={card.video} controls className="mb-2" />
           )}
+          {card.type === 'audio' && card.audio && (
+            <audio src={card.audio} controls className="mb-2 w-full" />
+          )}
           <p>{card.description}</p>
           {card.summary && <p className="text-sm text-gray-600">{card.summary}</p>}
           {card.createdAt && (
@@ -51,7 +55,7 @@ export default function CardGrid({ cards, onSelect, onEdit, onDelete }) {
               <span
                 key={tag}
                 className="inline-block px-2 py-1 text-xs rounded text-gray-700"
-                style={{ backgroundColor: tagColor(tag) }}
+                style={{ backgroundColor: tagColor(tag, tagPalette) }}
               >
                 {tag}
               </span>
