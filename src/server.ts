@@ -90,11 +90,45 @@ const cardSchema = z.object({
   illustration: z.string().optional(),
 });
 
+const illustrateSchema = z.object({ prompt: z.string() });
+const usageParams = z.object({ id: z.string() });
+const settingsSchema = z.object({
+  aiEnabled: z.boolean().optional(),
+  webSuggestionsEnabled: z.boolean().optional(),
+});
+const semanticSchema = z.object({ query: z.string(), limit: z.number().optional() });
+const linkSchema = z.object({
+  from: z.string(),
+  to: z.string(),
+  type: z.string().optional(),
+  annotation: z.string().optional(),
+});
+const linkUpdateSchema = z.object({
+  type: z.string().optional(),
+  annotation: z.string().optional(),
+});
+const linkParams = z.object({ id: z.string() });
+const chatSchema = z.object({ query: z.string() });
+
 api.post('/api/cards', async (req, res, next) => {
   try {
     const data = cardSchema.parse(req.body);
     const card = await app.createCard(data as any);
     res.json(card);
+  } catch (e) {
+    next(e);
+  }
+});
+
+api.get('/api/cards', (_req, res) => {
+  res.json(app.toJSON());
+});
+
+api.post('/api/illustrate', async (req, res, next) => {
+  try {
+    const { prompt } = illustrateSchema.parse(req.body);
+    const image = await app.generateIllustration(prompt);
+    res.json({ image });
   } catch (e) {
     next(e);
   }
@@ -169,6 +203,88 @@ api.post('/api/clip', async (req, res, next) => {
     }
     const card = await app.createCard(cardData);
     res.json(card);
+  } catch (e) {
+    next(e);
+  }
+});
+
+api.post('/api/search/semantic', async (req, res, next) => {
+  try {
+    const { query, limit } = semanticSchema.parse(req.body);
+    const results = await app.searchBySemantic(query, limit);
+    res.json(results);
+  } catch (e) {
+    next(e);
+  }
+});
+
+api.post('/api/settings', (req, res, next) => {
+  try {
+    const { aiEnabled, webSuggestionsEnabled } = settingsSchema.parse(req.body);
+    if (aiEnabled !== undefined) app.setAIEnabled(aiEnabled);
+    if (webSuggestionsEnabled !== undefined) {
+      app.setWebSuggestionsEnabled(webSuggestionsEnabled);
+    }
+    res.status(204).send();
+  } catch (e) {
+    next(e);
+  }
+});
+
+api.post('/api/links', (req, res, next) => {
+  try {
+    const data = linkSchema.parse(req.body);
+    const link = app.createLink(data.from, data.to, data.type, data.annotation);
+    res.json({ id: link.id, from: link.from, to: link.to, type: link.type, annotation: link.annotation });
+  } catch (e) {
+    next(e);
+  }
+});
+
+api.put('/api/links/:id', (req, res, next) => {
+  try {
+    const { id } = linkParams.parse(req.params);
+    const data = linkUpdateSchema.parse(req.body);
+    const link = app.updateLink(id, data);
+    if (!link) {
+      res.status(404).send('Not found');
+      return;
+    }
+    res.json({ id: link.id, from: link.from, to: link.to, type: link.type, annotation: link.annotation });
+  } catch (e) {
+    next(e);
+  }
+});
+
+api.delete('/api/links/:id', (req, res, next) => {
+  try {
+    const { id } = linkParams.parse(req.params);
+    const removed = app.removeLink(id);
+    if (!removed) {
+      res.status(404).send('Not found');
+      return;
+    }
+    res.status(204).send();
+  } catch (e) {
+    next(e);
+  }
+});
+
+api.post('/api/chat', async (req, res, next) => {
+  try {
+    const { query } = chatSchema.parse(req.body);
+    const answer = await app.chat(query);
+    res.json({ answer });
+  } catch (e) {
+    next(e);
+  }
+});
+
+api.post('/api/cards/:id/usage', (req, res, next) => {
+  try {
+    const { id } = usageParams.parse(req.params);
+    app.recordCardUsage(id);
+    res.status(204).send();
   } catch (e) {
     next(e);
   }

@@ -1,7 +1,7 @@
-async function fetchFromWikipedia(tag) {
+async function fetchFromWikipedia(tag, signal) {
   try {
     const url = `https://en.wikipedia.org/api/rest_v1/page/summary/${encodeURIComponent(tag)}`;
-    const res = await fetch(url, { headers: { Accept: 'application/json' } });
+    const res = await fetch(url, { headers: { Accept: 'application/json' }, signal });
     if (res.ok) {
       const data = await res.json();
       return {
@@ -18,10 +18,10 @@ async function fetchFromWikipedia(tag) {
   return null;
 }
 
-async function fetchFromReddit(tag) {
+async function fetchFromReddit(tag, signal) {
   try {
     const url = `https://www.reddit.com/search.json?q=${encodeURIComponent(tag)}&limit=1`;
-    const res = await fetch(url, { headers: { 'User-Agent': 'MemoryApp/1.0' } });
+    const res = await fetch(url, { headers: { 'User-Agent': 'MemoryApp/1.0' }, signal });
     if (res.ok) {
       const data = await res.json();
       const item = data && data.data && data.data.children && data.data.children[0] && data.data.children[0].data;
@@ -41,10 +41,10 @@ async function fetchFromReddit(tag) {
   return null;
 }
 
-async function fetchFromRSS(tag) {
+async function fetchFromRSS(tag, signal) {
   try {
     const url = `https://news.google.com/rss/search?q=${encodeURIComponent(tag)}`;
-    const res = await fetch(url);
+    const res = await fetch(url, { signal });
     if (res.ok) {
       const text = await res.text();
       const match = text.match(/<item>\s*<title>([^<]+)<\/title>\s*<link>([^<]+)<\/link>/i);
@@ -78,11 +78,11 @@ function getYouTubeApiKey() {
   return null;
 }
 
-async function fetchFromYouTube(tag) {
+async function fetchFromYouTube(tag, signal) {
   try {
     const apiKey = getYouTubeApiKey();
     const url = `https://www.googleapis.com/youtube/v3/search?part=snippet&type=video&maxResults=1&q=${encodeURIComponent(tag)}${apiKey ? `&key=${apiKey}` : ''}`;
-    const res = await fetch(url);
+    const res = await fetch(url, { signal });
     if (res.ok) {
       const data = await res.json();
       const item = data && data.items && data.items[0];
@@ -102,10 +102,10 @@ async function fetchFromYouTube(tag) {
   return null;
 }
 
-async function fetchFromArXiv(tag) {
+async function fetchFromArXiv(tag, signal) {
   try {
     const url = `http://export.arxiv.org/api/query?search_query=all:${encodeURIComponent(tag)}&start=0&max_results=1`;
-    const res = await fetch(url, { headers: { Accept: 'application/atom+xml' } });
+    const res = await fetch(url, { headers: { Accept: 'application/atom+xml' }, signal });
     if (res.ok) {
       const text = await res.text();
       const match = text.match(/<entry>.*?<title>([^<]+)<\/title>.*?<id>([^<]+)<\/id>/s);
@@ -125,7 +125,7 @@ async function fetchFromArXiv(tag) {
   return null;
 }
 
-export async function fetchSuggestion(tag, type = 'text') {
+export async function fetchSuggestion(tag, type = 'text', signal) {
   const strategies = [];
   if (type === 'video') {
     strategies.push(fetchFromYouTube);
@@ -133,10 +133,11 @@ export async function fetchSuggestion(tag, type = 'text') {
     strategies.push(fetchFromArXiv);
   }
   strategies.push(fetchFromReddit, fetchFromRSS, fetchFromWikipedia);
-  for (const fn of strategies) {
-    const suggestion = await fn(tag);
-    if (suggestion) {
-      return suggestion;
+  const tasks = strategies.map(fn => fn(tag, signal));
+  const results = await Promise.allSettled(tasks);
+  for (const r of results) {
+    if (r.status === 'fulfilled' && r.value) {
+      return r.value;
     }
   }
   return { tag, title: tag, description: '', url: '', source: 'none' };
