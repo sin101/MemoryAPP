@@ -11,9 +11,27 @@ import { fetchSuggestion } from './suggestions.js';
 import crypto from 'crypto';
 import JSZip from 'jszip';
 import Logger from './logger.js';
+import Fuse from 'fuse.js';
 
 class MemoryApp extends EventEmitter {
-  constructor(options = {}) {
+  cards: Map<string, Card>;
+  decks: Map<string, Deck>;
+  links: Map<string, Link>;
+  linksByCard: Map<string, Set<string>>;
+  tagIndex: Map<string, Set<string>>;
+  usageStats: Map<string, { count: number; lastOpened: number | null }>;
+  fuse: Fuse<Card>;
+  nextId: number;
+  nextLinkId: number;
+  aiEnabled: boolean;
+  webSuggestionsEnabled: boolean;
+  externalCallsEnabled: boolean;
+  backgroundProcessing: boolean;
+  ai: any;
+  encryptionKey?: string;
+  db: MemoryDB | null;
+  logger?: Logger;
+  constructor(options: any = {}) {
     super();
     this.cards = new Map();
     this.decks = new Map();
@@ -21,6 +39,7 @@ class MemoryApp extends EventEmitter {
     this.linksByCard = new Map();
     this.tagIndex = new Map();
     this.usageStats = new Map();
+    this.fuse = new Fuse([], { keys: ['title', 'content', 'description', 'tags'] });
     this.nextId = 1;
     this.nextLinkId = 1;
     this.aiEnabled = true;
@@ -69,6 +88,7 @@ class MemoryApp extends EventEmitter {
     this.emit('cardCreated', card);
     await this._processAndPersistCard(card);
     this._updateTagIndex(card);
+    this._rebuildSearchIndex();
     this._updateSmartDecks();
     return card;
   }
@@ -139,11 +159,7 @@ class MemoryApp extends EventEmitter {
     this.emit('cardUpdated', card);
     this.emit('deckUpdated', deck);
     if (this.db) {
-      try {
-        this.db.saveCard(card);
-      } catch (e) {
-        this.emit('error', e);
-      }
+      this.db.saveCard(card).catch(e => this.emit('error', e));
     }
   }
 
@@ -184,6 +200,7 @@ class MemoryApp extends EventEmitter {
     this.emit('cardUpdated', card);
     await this._processAndPersistCard(card);
     this._updateTagIndex(card, oldTags);
+    this._rebuildSearchIndex();
     this._updateSmartDecks();
     return card;
   }
@@ -216,7 +233,7 @@ class MemoryApp extends EventEmitter {
     }
     if (this.db) {
       try {
-        this.db.saveCard(card);
+        await this.db.saveCard(card);
       } catch (e) {
         this.emit('error', e);
       }
@@ -240,14 +257,7 @@ class MemoryApp extends EventEmitter {
   }
 
   searchByText(query) {
-    const q = query.toLowerCase();
-    const results = [];
-    for (const card of this.cards.values()) {
-      if (card.searchText.includes(q)) {
-        results.push(card);
-      }
-    }
-    return results;
+    return this.fuse.search(query).map(r => r.item);
   }
 
   async searchBySemantic(query, limit = 5) {
@@ -255,7 +265,7 @@ class MemoryApp extends EventEmitter {
       return this.searchByText(query).slice(0, limit);
     }
     const qVec = await this.ai.embed(query);
-    const scored = [];
+    const scored: any[] = [];
     for (const card of this.cards.values()) {
       if (!card.embedding) {
         continue;
@@ -265,8 +275,8 @@ class MemoryApp extends EventEmitter {
         scored.push({ card, sim });
       }
     }
-    scored.sort((a, b) => b.sim - a.sim);
-    return scored.slice(0, limit).map(s => s.card);
+    scored.sort((a: any, b: any) => b.sim - a.sim);
+    return scored.slice(0, limit).map((s: any) => s.card);
 
     function cosine(a, b) {
       let dot = 0, na = 0, nb = 0;
@@ -300,11 +310,7 @@ class MemoryApp extends EventEmitter {
           card.decks.delete(deckName);
           this.emit('cardUpdated', card);
           if (this.db) {
-            try {
-              this.db.saveCard(card);
-            } catch (e) {
-              this.emit('error', e);
-            }
+            this.db.saveCard(card).catch(e => this.emit('error', e));
           }
         }
         changed = true;
@@ -318,7 +324,7 @@ class MemoryApp extends EventEmitter {
           this.emit('cardUpdated', card);
           if (this.db) {
             try {
-              this.db.saveCard(card);
+              this.db.saveCard(card).catch(e => this.emit('error', e));
             } catch (e) {
               this.emit('error', e);
             }
@@ -436,6 +442,10 @@ class MemoryApp extends EventEmitter {
     this._addToTagIndex(card);
   }
 
+  _rebuildSearchIndex() {
+    this.fuse.setCollection(Array.from(this.cards.values()));
+  }
+
   async getCardSuggestions(cardId, limit = 3) {
     if (!this.webSuggestionsEnabled) {
       return [];
@@ -506,13 +516,10 @@ class MemoryApp extends EventEmitter {
     }
     this.cards.delete(cardId);
     this._removeFromTagIndex(card);
+    this._rebuildSearchIndex();
     this.emit('cardRemoved', card);
     if (this.db) {
-      try {
-        this.db.deleteCard(cardId);
-      } catch (e) {
-        this.emit('error', e);
-      }
+      this.db.deleteCard(cardId).catch(e => this.emit('error', e));
     }
     this._updateSmartDecks();
     return true;
@@ -530,11 +537,7 @@ class MemoryApp extends EventEmitter {
         card.decks.delete(norm);
         this.emit('cardUpdated', card);
         if (this.db) {
-          try {
-            this.db.saveCard(card);
-          } catch (e) {
-            this.emit('error', e);
-          }
+          this.db.saveCard(card).catch(e => this.emit('error', e));
         }
       }
     }
@@ -591,11 +594,7 @@ class MemoryApp extends EventEmitter {
     this.links.set(id, link);
     this._indexLink(link);
     if (this.db) {
-      try {
-        this.db.saveLink(link);
-      } catch (e) {
-        this.emit('error', e);
-      }
+      this.db.saveLink(link).catch(e => this.emit('error', e));
     }
     this.emit('linkCreated', link);
     return link;
@@ -617,11 +616,7 @@ class MemoryApp extends EventEmitter {
       annotation: data.annotation,
     });
     if (this.db) {
-      try {
-        this.db.saveLink(link);
-      } catch (e) {
-        this.emit('error', e);
-      }
+      this.db.saveLink(link).catch(e => this.emit('error', e));
     }
     this.emit('linkUpdated', link);
     return link;
@@ -663,11 +658,7 @@ class MemoryApp extends EventEmitter {
     if (res && link) {
       this._unindexLink(link);
       if (this.db) {
-        try {
-          this.db.deleteLink(linkId);
-        } catch (e) {
-          this.emit('error', e);
-        }
+        this.db.deleteLink(linkId).catch(e => this.emit('error', e));
       }
       this.emit('linkRemoved', link);
     }
@@ -845,8 +836,11 @@ class MemoryApp extends EventEmitter {
     const filePath = path.join(dir, filename);
     let data = buffer;
     if (this.encryptionKey) {
-      const cipher = crypto.createCipher('aes-256-ctr', this.encryptionKey);
-      data = Buffer.concat([cipher.update(buffer), cipher.final()]);
+      const iv = crypto.randomBytes(16);
+      const key = crypto.createHash('sha256').update(this.encryptionKey).digest();
+      const cipher = crypto.createCipheriv('aes-256-ctr', key, iv);
+      const encrypted = Buffer.concat([cipher.update(buffer), cipher.final()]);
+      data = Buffer.concat([iv, encrypted]);
     }
     await fs.promises.writeFile(filePath, data);
     return filePath;
@@ -855,8 +849,11 @@ class MemoryApp extends EventEmitter {
   async loadMedia(filePath) {
     let data = await fs.promises.readFile(filePath);
     if (this.encryptionKey) {
-      const decipher = crypto.createDecipher('aes-256-ctr', this.encryptionKey);
-      data = Buffer.concat([decipher.update(data), decipher.final()]);
+      const iv = data.subarray(0, 16);
+      const encrypted = data.subarray(16);
+      const key = crypto.createHash('sha256').update(this.encryptionKey).digest();
+      const decipher = crypto.createDecipheriv('aes-256-ctr', key, iv);
+      data = Buffer.concat([decipher.update(encrypted), decipher.final()]);
     }
     return data;
   }
@@ -965,8 +962,8 @@ class MemoryApp extends EventEmitter {
     return MemoryApp.fromJSON(JSON.parse(json));
   }
 
-  loadFromDB() {
-    const stored = this.db.loadCards();
+  async loadFromDB() {
+    const stored = await this.db.loadCards();
     for (const data of stored) {
       data.tags = data.tags.map(t => t.toLowerCase());
       data.decks = data.decks.map(d => d.toLowerCase());
@@ -982,7 +979,7 @@ class MemoryApp extends EventEmitter {
         deck.cards.add(card.id);
       }
     }
-    const links = this.db.loadLinks();
+    const links = await this.db.loadLinks();
     for (const data of links) {
       const link = new Link(data);
       this.links.set(link.id, link);
@@ -992,6 +989,7 @@ class MemoryApp extends EventEmitter {
         this.nextLinkId = num + 1;
       }
     }
+    this._rebuildSearchIndex();
     this._updateSmartDecks();
   }
 }

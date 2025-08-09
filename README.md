@@ -54,6 +54,11 @@ Summarization uses `Xenova/distilbart-cnn-6-6` and embeddings use the MiniLM mod
 npm test
 ```
 
+### Server security
+
+The API server uses Helmet for common security headers and applies basic rate limiting.
+You can adjust the request limit per minute with the `RATE_LIMIT_MAX` environment variable.
+
 ### Desktop build
 
 ```

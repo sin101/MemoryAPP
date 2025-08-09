@@ -1,7 +1,3 @@
-// @ts-nocheck
-function getFetch() {
-  return (global as any).fetch || require('node-fetch');
-}
 import { XMLParser } from 'fast-xml-parser';
 
 const FETCH_TIMEOUT_MS = 1000;
@@ -9,17 +5,7 @@ const CACHE_TTL_MS = 60 * 60 * 1000;
 const cache = new Map<string, { ts: number; value: any }>();
 
 async function timedFetch(url: string, options: any = {}, timeout = FETCH_TIMEOUT_MS) {
-  const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), timeout);
-  const fetchPromise = getFetch()(url, { ...options, signal: controller.signal });
-  const timeoutPromise = new Promise((_, reject) => {
-    controller.signal.addEventListener('abort', () => reject(new Error('timeout')), { once: true });
-  });
-  try {
-    return await Promise.race([fetchPromise, timeoutPromise]);
-  } finally {
-    clearTimeout(timer);
-  }
+  return fetch(url, { ...options, signal: AbortSignal.timeout(timeout) });
 }
 
 function getKey(tag: string, source: string) {
