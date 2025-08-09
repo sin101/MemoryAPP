@@ -1,2 +1,7 @@
 node_modules/
+frontend/dist/
+desktop/dist/
+dist/
+dist-desktop/
+
 

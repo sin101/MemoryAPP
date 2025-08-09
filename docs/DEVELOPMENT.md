@@ -14,3 +14,11 @@ npm run frontend:dev
 ```
 
 An Electron entry point is provided in `desktop/main.js`.
+
+To produce packaged desktop binaries for Windows, macOS, and Linux:
+
+```
+npm run desktop:pack
+```
+
+The output will be written to `dist-desktop/`.

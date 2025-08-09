@@ -1,0 +1,30 @@
+{
+  "name": "memoryapp-desktop",
+  "version": "0.1.0",
+  "main": "main.js",
+  "scripts": {
+    "build": "electron-builder --projectDir .. --config package.json"
+  },
+  "build": {
+    "appId": "com.memoryapp.app",
+    "files": [
+      "desktop/main.js",
+      "frontend/dist/**/*",
+      "src/**/*",
+      "package.json"
+    ],
+    "directories": {
+      "output": "dist-desktop"
+    },
+    "win": {
+      "target": "nsis"
+    },
+    "mac": {
+      "target": "dmg",
+      "category": "public.app-category.productivity"
+    },
+    "linux": {
+      "target": "AppImage"
+    }
+  }
+}
