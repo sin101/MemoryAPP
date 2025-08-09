@@ -10,8 +10,9 @@ const { SimpleAI } = require('./src/ai');
   const card = await app.createCard({
     title: 'First note',
     content: 'Hello world',
-    tags: ['intro']
+    tags: ['Intro']
   });
+  assert.ok(card.tags.has('intro'), 'Tags should be normalized to lowercase');
 
   assert.ok(card.summary, 'Card should have a summary');
   assert.ok(card.illustration, 'Card should have an illustration');
@@ -20,7 +21,21 @@ const { SimpleAI } = require('./src/ai');
     'Illustration should be a data URI'
   );
 
+  let deckCreated = false;
+  let cardUpdated = false;
+  app.on('deckCreated', () => {
+    deckCreated = true;
+  });
+  app.on('cardUpdated', c => {
+    if (c.id === card.id) {
+      cardUpdated = true;
+    }
+  });
   app.addCardToDeck(card.id, 'general');
+  assert.ok(deckCreated, 'Creating a new deck should emit deckCreated');
+  assert.ok(cardUpdated, 'Adding card to deck should emit cardUpdated');
+  app.removeAllListeners('deckCreated');
+  app.removeAllListeners('cardUpdated');
   app.addCardToDeck(card.id, 'secondary');
 
   assert.strictEqual(app.cards.size, 1, 'Card count should be 1');
@@ -59,14 +74,44 @@ const { SimpleAI } = require('./src/ai');
   const annotated = app.createLink(second.id, extra.id, 'relates', 'cross-ref');
   assert.strictEqual(annotated.annotation, 'cross-ref', 'Link should store annotation');
 
+  const upperLink = app.createLink(extra.id, second.id, 'REFERENCES');
+  assert.strictEqual(upperLink.type, 'references', 'Link type should normalize to lowercase');
+  assert.throws(
+    () => app.createLink(extra.id, second.id, 'references'),
+    /Link already exists/
+  );
+  app.removeLink(upperLink.id);
+
+  assert.throws(() => app.createLink(card.id, card.id), /Cannot link card to itself/);
+  assert.throws(() => app.createLink(card.id, second.id, 'relates'), /Link already exists/);
+
+  let linkUpdated = false;
+  app.on('linkUpdated', l => {
+    if (l.id === link.id) {
+      linkUpdated = true;
+    }
+  });
+  const updatedLink = app.updateLink(link.id, {
+    annotation: 'better',
+    type: 'REFERENCES'
+  });
+  assert.strictEqual(updatedLink.annotation, 'better', 'Link annotation should update');
+  assert.strictEqual(updatedLink.type, 'references', 'Link type should update');
+  assert.ok(linkUpdated, 'Updating link should emit linkUpdated');
+  app.removeAllListeners('linkUpdated');
+
   let removedEvents = 0;
   const onLinkRemoved = () => { removedEvents += 1; };
   app.on('linkRemoved', onLinkRemoved);
 
+  let deckUpdates = 0;
+  app.on('deckUpdated', () => { deckUpdates += 1; });
   const removed = app.removeCard(card.id);
   assert.ok(removed, 'Card removal should return true');
   assert.strictEqual(removedEvents, 2, 'Removing card should emit linkRemoved for each link');
+  assert.strictEqual(deckUpdates, 2, 'Removing card should emit deckUpdated for each deck');
   app.removeListener('linkRemoved', onLinkRemoved);
+  app.removeAllListeners('deckUpdated');
   assert.strictEqual(app.cards.size, 2, 'Card count should be 2 after removal');
   assert.ok(!app.decks.get('general').cards.has(card.id), 'Deck should no longer contain removed card');
   assert.ok(!app.decks.get('secondary').cards.has(card.id), 'All decks should remove the card');
@@ -83,10 +128,34 @@ const { SimpleAI } = require('./src/ai');
   assert.strictEqual(app.searchByTag('edited')[0].id, second.id, 'Search should return updated card');
   assert.strictEqual(app.searchByTag('outro').length, 0, 'Old tag should not be found');
 
+  let deckCardUpdated = false;
+  app.on('cardUpdated', c => {
+    if (c.id === second.id) {
+      deckCardUpdated = true;
+    }
+  });
   const deckRemoved = app.removeDeck('general');
   assert.ok(deckRemoved, 'Deck removal should return true');
   assert.ok(!app.decks.has('general'), 'Deck should be removed from app');
   assert.ok(!app.cards.get(second.id).decks.has('general'), 'Card should no longer list removed deck');
+  assert.ok(deckCardUpdated, 'Removing deck should emit cardUpdated for affected cards');
+  app.removeAllListeners('cardUpdated');
+
+  // Deck name normalization and case-insensitive operations
+  const deckApp = new MemoryApp({ ai: new SimpleAI() });
+  const deckCard = await deckApp.createCard({ title: 'Deck Case' });
+  let createdCount = 0;
+  deckApp.on('deckCreated', () => { createdCount += 1; });
+  deckApp.addCardToDeck(deckCard.id, 'Mixed');
+  deckApp.addCardToDeck(deckCard.id, 'MIXED');
+  assert.strictEqual(createdCount, 1, 'Deck creation should be case-insensitive');
+  assert.ok(deckApp.decks.has('mixed'), 'Deck should be stored in lowercase');
+  assert.ok(deckApp.cards.get(deckCard.id).decks.has('mixed'), 'Card deck should be normalized');
+  const mixedGraph = deckApp.getGraph({ deck: 'MIXED' });
+  assert.strictEqual(mixedGraph.nodes.length, 1, 'Graph deck filter should be case-insensitive');
+  const mixedRemoved = deckApp.removeDeck('MIXED');
+  assert.ok(mixedRemoved, 'Removing deck should be case-insensitive');
+  assert.ok(!deckApp.cards.get(deckCard.id).decks.has('mixed'), 'Card should lose deck after removal');
 
   // Searching cards missing title or content
   const searchApp = new MemoryApp({ ai: new SimpleAI() });
@@ -181,7 +250,7 @@ const { SimpleAI } = require('./src/ai');
   const third = await app.createCard({ title: 'Third', content: 'More', tags: [] });
   app.addCardToDeck(second.id, 'final');
   app.addCardToDeck(third.id, 'final');
-  app.createLink(second.id, third.id, 'related');
+  app.createLink(second.id, third.id, 'related', 'note');
 
   const file = 'memory.json';
   await app.saveToFile(file);
@@ -196,6 +265,10 @@ const { SimpleAI } = require('./src/ai');
   assert.strictEqual(graph.edges.length, 1, 'Graph should include one edge');
   assert.strictEqual(graph.edges[0].from, second.id, 'Edge should start from second card');
   assert.strictEqual(graph.edges[0].to, third.id, 'Edge should point to third card');
+  assert.strictEqual(graph.edges[0].annotation, 'note', 'Edge should include annotation');
+
+  const caseDeck = loaded.getGraph({ deck: 'FINAL' });
+  assert.strictEqual(caseDeck.nodes.length, 2, 'Deck filter should be case-insensitive');
 
   const tagFiltered = loaded.getGraph({ deck: 'final', tag: 'edited' });
   assert.strictEqual(tagFiltered.nodes.length, 1, 'Tag filter should reduce nodes');
@@ -203,8 +276,14 @@ const { SimpleAI } = require('./src/ai');
   assert.ok(tagFiltered.nodes[0].decks.includes('final'), 'Node should list deck membership');
   assert.strictEqual(tagFiltered.edges.length, 0, 'Edge should be dropped when referenced card missing');
 
+  const caseFiltered = loaded.getGraph({ deck: 'final', tag: 'EDITED' });
+  assert.strictEqual(caseFiltered.nodes.length, 1, 'Tag filter should be case-insensitive');
+
   const typeFiltered = loaded.getGraph({ deck: 'final', linkType: 'related' });
   assert.strictEqual(typeFiltered.edges.length, 1, 'Link type filter should keep matching edges');
+
+  const caseTypeFiltered = loaded.getGraph({ deck: 'final', linkType: 'RELATED' });
+  assert.strictEqual(caseTypeFiltered.edges.length, 1, 'Link type filter should be case-insensitive');
 
   // Chatbot retrieval
   const chatReply = await app.chat('Second updated');
@@ -356,14 +435,51 @@ const { SimpleAI } = require('./src/ai');
   assert.strictEqual(audioCard.contentType, 'audio/webm', 'Audio note should record content type');
   assert.strictEqual(audioCard.duration, 0, 'Audio note should record duration');
 
-  // Favorite deck from usage stats
-  const usageApp = new MemoryApp({ ai: new SimpleAI() });
-  const u1 = await usageApp.createCard({ title: 'U1', content: '' });
-  const u2 = await usageApp.createCard({ title: 'U2', content: '' });
-  usageApp.recordCardUsage(u1.id);
-  usageApp.recordCardUsage(u1.id);
-  usageApp.recordCardUsage(u2.id);
-  assert.ok(usageApp.getDeck('favorites').cards.has(u1.id), 'Most used card should be favorite');
+// Favorite deck from usage stats
+const usageApp = new MemoryApp({ ai: new SimpleAI() });
+const u1 = await usageApp.createCard({ title: 'U1', content: '' });
+const u2 = await usageApp.createCard({ title: 'U2', content: '' });
+let favDeckUpdates = 0;
+let favCardUpdates = 0;
+usageApp.on('deckUpdated', d => {
+  if (d.name === 'favorites') {
+    favDeckUpdates += 1;
+  }
+});
+usageApp.on('cardUpdated', c => {
+  if (c.id === u1.id || c.id === u2.id) {
+    favCardUpdates += 1;
+  }
+});
+usageApp.recordCardUsage(u1.id);
+assert.strictEqual(favDeckUpdates, 1, 'Recording usage should update favorites deck');
+assert.strictEqual(favCardUpdates, 1, 'Recording usage should update card decks');
+favDeckUpdates = 0;
+favCardUpdates = 0;
+usageApp.recordCardUsage(u1.id);
+assert.strictEqual(favDeckUpdates, 0, 'Repeated usage should not update deck');
+assert.strictEqual(favCardUpdates, 0, 'Repeated usage should not emit cardUpdated');
+favDeckUpdates = 0;
+favCardUpdates = 0;
+usageApp.recordCardUsage(u2.id);
+assert.strictEqual(favDeckUpdates, 1, 'Adding new favorite should update deck');
+assert.strictEqual(favCardUpdates, 1, 'Adding new favorite should emit cardUpdated');
+favDeckUpdates = 0;
+favCardUpdates = 0;
+usageApp.usageStats.clear();
+usageApp.recordCardUsage(u2.id);
+assert.strictEqual(favDeckUpdates, 1, 'Changing favorites should update deck');
+assert.strictEqual(favCardUpdates, 1, 'Removing old favorite should emit cardUpdated');
+assert.ok(
+  !usageApp.cards.get(u1.id).decks.has('favorites'),
+  'Removed card should lose favorites deck'
+);
+assert.ok(
+  usageApp.getDeck('favorites').cards.has(u2.id),
+  'Favorites deck should contain current top card'
+);
+usageApp.removeAllListeners('deckUpdated');
+usageApp.removeAllListeners('cardUpdated');
 
   // Suggestion filtering of null results
   delete require.cache[require.resolve('./src/app')];
@@ -384,6 +500,21 @@ const { SimpleAI } = require('./src/ai');
   const themeFiltered = await filterApp.getThemeSuggestions(5);
   assert.strictEqual(themeFiltered.length, 1, 'Theme suggestions should filter out nulls');
   assert.strictEqual(themeFiltered[0].tag, 'good', 'Theme should include non-null suggestion');
+
+  // AI task error resilience
+  const errAI = new SimpleAI();
+  errAI.generateIllustration = async () => {
+    throw new Error('boom');
+  };
+  const errApp = new MemoryApp({ ai: errAI });
+  let errEvents = 0;
+  errApp.on('error', () => {
+    errEvents += 1;
+  });
+  const errCard = await errApp.createCard({ title: 'Err', content: 'test' });
+  assert.ok(errCard.summary, 'Summary should still be generated');
+  assert.ok(!errCard.illustration, 'Illustration should remain unset when generation fails');
+  assert.strictEqual(errEvents, 1, 'Error event should be emitted once');
 
   // Encrypted export/import
   const encApp = new MemoryApp({ ai: new SimpleAI() });

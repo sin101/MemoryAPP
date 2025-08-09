@@ -1,6 +1,6 @@
 class Deck {
   constructor(name) {
-    this.name = name;
+    this.name = name.toLowerCase();
     this.cards = new Set();
   }
 
