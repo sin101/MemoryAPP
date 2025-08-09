@@ -30,3 +30,7 @@ The server exposes card lifecycle events over a Server-Sent Events stream at `/a
 ## Semantic search index
 
 Card embeddings are organized using a simple locality-sensitive hash. Queries hash the embedding vector and only compare against cards in the matching bucket for faster semantic lookup on large datasets.
+
+## Virtualized card grid
+
+The frontend renders card lists with `react-window` to only mount items visible in the viewport, keeping scrolling smooth even with thousands of cards.

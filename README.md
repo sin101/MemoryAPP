@@ -8,6 +8,7 @@ This repository contains a small prototype of a personal content manager based o
 - Browser clipper that captures page selections with screenshots,
   stores them as card illustrations, and queues clips offline
 - Customizable themes and smart decks for Recent, Frequent, Unseen, Stale, and popular tags
+- Virtualized card grid that only renders visible cards using `react-window`
 
 ## Development
 
