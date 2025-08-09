@@ -9,7 +9,7 @@
     "frontend:dev": "npm run dev --prefix frontend",
     "frontend:build": "npm run build --prefix frontend",
     "frontend:preview": "npm run preview --prefix frontend",
-    "desktop:pack": "npm run frontend:build && npx electron-packager . MemoryAPP --out=dist-desktop --overwrite"
+    "desktop:pack": "npm run frontend:build && npm run build --prefix desktop"
   },
   "keywords": [],
   "author": "",
@@ -26,6 +26,6 @@
   },
   "devDependencies": {
     "electron": "^29.0.0",
-    "electron-packager": "^17.1.2"
+    "electron-builder": "^24.6.0"
   }
 }
