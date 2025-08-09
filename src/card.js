@@ -35,7 +35,7 @@ class Card {
   }
 
   addDeck(deckName) {
-    this.decks.add(deckName);
+    this.decks.add(deckName.toLowerCase());
   }
 
   removeTag(tag) {
