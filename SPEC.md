@@ -142,6 +142,44 @@ Organization in cards (see UI section)
 - Technical schema (front/back/AI architecture)
 - Link management API, multi-deck, web suggestions
 
+## 9. Additional Spec Enhancements
+- Spatial & temporal navigation – complement the card grid and graph with a "memory lane" timeline and a free-form spatial canvas where cards can be clustered, layered or zoomed in 3D/AR, extending the Pokémon-style card concept and existing graph view
+- Adaptive UI themes – allow AI-driven theme suggestions that match card content or user mood, building on the current customizable themes and tag palettes
+- AI-assisted linking – propose bidirectional links or deck assignments using on-device embeddings, improving the existing automatic enrichment layer while remaining offline-friendly
+- Multimodal summarization – expand summarization to combine text, audio, and image cues, producing richer descriptions and captions for cards sourced from diverse media
+- Edge-optimized inference – ship quantized transformer models via WebGPU/WASM with background streaming and caching to minimize latency and memory use while keeping the offline-first approach
+- Encrypted collaborative sync – optional peer-to-peer or self-hosted sync using CRDTs so multiple devices can merge edits without exposing content to third parties, aligning with the privacy-first design
+- Plugin microservices – define a lightweight plugin API so community modules (e.g., OCR, translation, speech synthesis) can run as isolated Rust/WASM microservices, enhancing backend efficiency and modularity.
+
+## 10. Future Upgrades
+- Generative memory boards – automatically compose narrative storyboards from related cards with interactive editing and export to slides or short videos.
+- Context-aware reminders & rituals – trigger nudges or sequences based on location, calendar events, or recurring habits.
+- Holographic cross-device continuity – share a spatial canvas across nearby devices or AR headsets for seamless card movement.
+- Predictive semantic search – live intent guessing that surfaces partial matches from text, image, or audio embeddings as the user types.
+- On-device auto-taxonomy – continually cluster cards into emergent topics and surface them as smart decks for user curation.
+- Ambient knowledge infusion – match downloaded public-domain packs against existing cards to suggest contextual enrichments.
+- Neural ink & gesture capture – convert stylus or finger drawings into recognized objects and in-place transcriptions.
+- Energy-aware AI scheduling – defer heavy model work to charging or idle periods and fall back to lightweight heuristics when power is low.
+- Anonymized community insight pool – opt-in sharing of encrypted model gradients to improve global embeddings and return trend cards.
+- Zero-trust plugin marketplace – distribute capability-scoped plugins with audit dashboards for resource and data access.
+
+## 11. Roadmap
+1. **Phase 1 – Immersive spatial foundations**
+  - Deliver generative memory boards, predictive semantic search, and the energy-aware scheduler alongside timeline and 3D/AR views.
+  - Measure ≤200 ms render time for 1k cards and collect power usage metrics.
+2. **Phase 2 – Gesture & ink intelligence**
+  - Implement neural ink capture with real-time transcription and context-aware reminders.
+  - Validate handwriting accuracy ≥90% and reminder opt-in conversions.
+3. **Phase 3 – Cross-device & ambient knowledge**
+  - Launch holographic continuity and ambient knowledge packs with auto-taxonomy smart decks.
+  - Target sub‑1 s sync latency over LAN and ≥3 useful suggestions per pack.
+4. **Phase 4 – Community & security layer**
+  - Roll out anonymized community insight pool and zero-trust plugin marketplace.
+  - Audit dashboard reports resource usage and supports plugin revocation.
+5. **Phase 5 – Holistic UX refinement**
+  - Integrate ritual sequences and storyboard editors into onboarding and tutorials.
+  - Conduct closed beta to iterate on energy scheduling and community insights.
+
 ## User Workflow Summary
 ```
 [Simple add] → [AI-enriched card] → [Organization in decks] → [Search & suggestions] → [Graph visualization of links]
