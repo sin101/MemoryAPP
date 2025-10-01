@@ -57,7 +57,7 @@ class Card {
   }
 
   removeTag(tag: string) {
-    this.tags.delete(tag);
+    this.tags.delete(tag.toLowerCase());
   }
 
   update({ title, content, source, tags, description, type, summary, illustration, contentType, duration, embedding }: any) {
