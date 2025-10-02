@@ -69,6 +69,8 @@ setInterval(() => {
 app.on('cardCreated', c => broadcast('cardCreated', c));
 app.on('cardUpdated', c => broadcast('cardUpdated', c));
 app.on('cardRemoved', c => broadcast('cardRemoved', c));
+app.on('cardProcessed', c => broadcast('cardProcessed', c));
+app.on('deckRemoved', name => broadcast('deckRemoved', name));
 
 api.use((req, res, next) => {
   if (!API_TOKEN) return next();
