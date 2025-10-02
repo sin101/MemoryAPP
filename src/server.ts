@@ -71,6 +71,11 @@ app.on('cardUpdated', c => broadcast('cardUpdated', c));
 app.on('cardRemoved', c => broadcast('cardRemoved', c));
 app.on('cardProcessed', c => broadcast('cardProcessed', c));
 app.on('deckRemoved', name => broadcast('deckRemoved', name));
+app.on('deckCreated', deck => broadcast('deckCreated', { name: deck.name, cards: Array.from(deck.cards) }));
+app.on('deckUpdated', deck => broadcast('deckUpdated', { name: deck.name, cards: Array.from(deck.cards) }));
+app.on('linkCreated', link => broadcast('linkCreated', link));
+app.on('linkUpdated', link => broadcast('linkUpdated', link));
+app.on('linkRemoved', link => broadcast('linkRemoved', link));
 
 api.use((req, res, next) => {
   if (!API_TOKEN) return next();
@@ -97,6 +102,8 @@ const usageParams = z.object({ id: z.string() });
 const settingsSchema = z.object({
   aiEnabled: z.boolean().optional(),
   webSuggestionsEnabled: z.boolean().optional(),
+  externalCallsEnabled: z.boolean().optional(),
+  backgroundProcessing: z.boolean().optional(),
 });
 const semanticSchema = z.object({ query: z.string(), limit: z.number().optional() });
 const linkSchema = z.object({
@@ -111,6 +118,11 @@ const linkUpdateSchema = z.object({
 });
 const linkParams = z.object({ id: z.string() });
 const chatSchema = z.object({ query: z.string() });
+const deckCreateSchema = z.object({ name: z.string() });
+const deckParams = z.object({ name: z.string() });
+const deckCardBody = z.object({ cardId: z.string() });
+const deckCardParams = z.object({ name: z.string(), cardId: z.string() });
+const limitQuerySchema = z.object({ limit: z.string().optional() });
 
 api.post('/api/cards', async (req, res, next) => {
   try {
@@ -124,6 +136,78 @@ api.post('/api/cards', async (req, res, next) => {
 
 api.get('/api/cards', (_req, res) => {
   res.json(app.toJSON());
+});
+
+api.post('/api/decks', (req, res, next) => {
+  try {
+    const { name } = deckCreateSchema.parse(req.body);
+    const deck = app.getDeck(name);
+    res.json({ name: deck.name, cards: Array.from(deck.cards), size: deck.cards.size });
+  } catch (e) {
+    next(e);
+  }
+});
+
+api.get('/api/decks', (_req, res) => {
+  res.json(app.listDecks());
+});
+
+api.get('/api/decks/:name', (req, res, next) => {
+  try {
+    const { name } = deckParams.parse(req.params);
+    const deck = app.getDeckSnapshot(name);
+    if (!deck) {
+      res.status(404).send('Not found');
+      return;
+    }
+    res.json(deck);
+  } catch (e) {
+    next(e);
+  }
+});
+
+api.post('/api/decks/:name/cards', (req, res, next) => {
+  try {
+    const { name } = deckParams.parse(req.params);
+    const { cardId } = deckCardBody.parse(req.body);
+    const deck = app.addCardToDeck(cardId, name);
+    res.json({ name: deck.name, cards: Array.from(deck.cards), size: deck.cards.size });
+  } catch (e) {
+    next(e);
+  }
+});
+
+api.delete('/api/decks/:name/cards/:cardId', (req, res, next) => {
+  try {
+    const { name, cardId } = deckCardParams.parse(req.params);
+    const removed = app.removeCardFromDeck(cardId, name);
+    if (!removed) {
+      res.status(404).send('Not found');
+      return;
+    }
+    const deck = app.getDeckSnapshot(name);
+    if (!deck) {
+      res.status(204).send();
+      return;
+    }
+    res.json(deck);
+  } catch (e) {
+    next(e);
+  }
+});
+
+api.delete('/api/decks/:name', (req, res, next) => {
+  try {
+    const { name } = deckParams.parse(req.params);
+    const removed = app.removeDeck(name);
+    if (!removed) {
+      res.status(404).send('Not found');
+      return;
+    }
+    res.status(204).send();
+  } catch (e) {
+    next(e);
+  }
 });
 
 api.post('/api/illustrate', async (req, res, next) => {
@@ -210,6 +294,18 @@ api.post('/api/clip', async (req, res, next) => {
   }
 });
 
+api.get('/api/graph', (req, res, next) => {
+  try {
+    const deck = typeof req.query.deck === 'string' ? req.query.deck : undefined;
+    const tag = typeof req.query.tag === 'string' ? req.query.tag : undefined;
+    const linkType = typeof req.query.linkType === 'string' ? req.query.linkType : undefined;
+    const graph = app.getGraph({ deck, tag, linkType });
+    res.json(graph);
+  } catch (e) {
+    next(e);
+  }
+});
+
 api.post('/api/search/semantic', async (req, res, next) => {
   try {
     const { query, limit } = semanticSchema.parse(req.body);
@@ -220,12 +316,57 @@ api.post('/api/search/semantic', async (req, res, next) => {
   }
 });
 
+api.get('/api/cards/:id/suggestions', async (req, res, next) => {
+  try {
+    const { id } = usageParams.parse(req.params);
+    const { limit } = limitQuerySchema.parse(req.query);
+    const parsed = limit ? parseInt(limit, 10) : 3;
+    const clamped = Number.isFinite(parsed) ? Math.min(Math.max(parsed, 1), 10) : 3;
+    const suggestions = await app.getCardSuggestions(id, clamped);
+    res.json(suggestions);
+  } catch (e) {
+    next(e);
+  }
+});
+
+api.get('/api/suggestions/themes', async (req, res, next) => {
+  try {
+    const { limit } = limitQuerySchema.parse(req.query);
+    const parsed = limit ? parseInt(limit, 10) : 3;
+    const clamped = Number.isFinite(parsed) ? Math.min(Math.max(parsed, 1), 10) : 3;
+    const suggestions = await app.getThemeSuggestions(clamped);
+    res.json(suggestions);
+  } catch (e) {
+    next(e);
+  }
+});
+
+api.get('/api/suggestions/web', async (req, res, next) => {
+  try {
+    const { limit } = limitQuerySchema.parse(req.query);
+    const parsed = limit ? parseInt(limit, 10) : 3;
+    const clamped = Number.isFinite(parsed) ? Math.min(Math.max(parsed, 1), 10) : 3;
+    const suggestions = await app.getWebSuggestions(clamped);
+    res.json(suggestions);
+  } catch (e) {
+    next(e);
+  }
+});
+
 api.post('/api/settings', (req, res, next) => {
   try {
-    const { aiEnabled, webSuggestionsEnabled } = settingsSchema.parse(req.body);
-    if (aiEnabled !== undefined) app.setAIEnabled(aiEnabled);
+    const { aiEnabled, webSuggestionsEnabled, externalCallsEnabled, backgroundProcessing } = settingsSchema.parse(req.body);
+    if (externalCallsEnabled !== undefined) {
+      app.setExternalCallsEnabled(externalCallsEnabled);
+    }
+    if (aiEnabled !== undefined) {
+      app.setAIEnabled(aiEnabled);
+    }
     if (webSuggestionsEnabled !== undefined) {
       app.setWebSuggestionsEnabled(webSuggestionsEnabled);
+    }
+    if (backgroundProcessing !== undefined) {
+      app.setBackgroundProcessing(backgroundProcessing);
     }
     res.status(204).send();
   } catch (e) {
@@ -286,6 +427,30 @@ api.post('/api/cards/:id/usage', (req, res, next) => {
   try {
     const { id } = usageParams.parse(req.params);
     app.recordCardUsage(id);
+    res.status(204).send();
+  } catch (e) {
+    next(e);
+  }
+});
+
+api.get('/api/export/json', (_req, res) => {
+  res.json(app.toJSON());
+});
+
+api.get('/api/export/zip', async (_req, res, next) => {
+  try {
+    const buffer = await app.exportZipBuffer();
+    res.setHeader('Content-Type', 'application/zip');
+    res.setHeader('Content-Disposition', 'attachment; filename="memoryapp-export.zip"');
+    res.send(buffer);
+  } catch (e) {
+    next(e);
+  }
+});
+
+api.post('/api/import/json', async (req, res, next) => {
+  try {
+    await app.loadSnapshot(req.body);
     res.status(204).send();
   } catch (e) {
     next(e);

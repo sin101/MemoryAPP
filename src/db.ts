@@ -149,6 +149,26 @@ class MemoryDB {
     }));
   }
 
+  async replaceAll(cards: CardRecord[], links: LinkRecord[]): Promise<void> {
+    await this.ready;
+    await this.db.exec('BEGIN TRANSACTION');
+    try {
+      await this.db.run('DELETE FROM cards');
+      await this.db.run('DELETE FROM links');
+      await this.db.run('DELETE FROM card_search');
+      for (const card of cards) {
+        await this.saveCard(card);
+      }
+      for (const link of links) {
+        await this.saveLink(link);
+      }
+      await this.db.exec('COMMIT');
+    } catch (e) {
+      await this.db.exec('ROLLBACK');
+      throw e;
+    }
+  }
+
   encrypt(text: any) {
     if (!this.key || text === undefined || text === null) return text;
     const iv = crypto.randomBytes(12);

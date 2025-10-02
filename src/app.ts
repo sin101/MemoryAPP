@@ -48,7 +48,7 @@ class MemoryApp extends EventEmitter {
     this.linksByCard = new Map();
     this.tagIndex = new Map();
     this.usageStats = new Map();
-    this.fuse = new Fuse([], { keys: ['title', 'content', 'description', 'tags'] });
+    this.fuse = this._createFuse();
     this.nextId = 1;
     this.nextLinkId = 1;
     this.aiEnabled = true;
@@ -207,35 +207,75 @@ class MemoryApp extends EventEmitter {
       throw new Error('Card not found');
     }
     const deck = this.getDeck(deckName);
+    if (deck.cards.has(card.id)) {
+      return deck;
+    }
     deck.addCard(card);
     this.emit('cardUpdated', card);
     this.emit('deckUpdated', deck);
     if (this.db) {
       this.db.saveCard(card).catch(e => this.emit('error', e));
     }
+    return deck;
   }
 
-    async createAudioNote(sourcePath: string, options: Partial<CardData> = {}) {
-      const transcript = this.ai.transcribe ? await this.ai.transcribe(sourcePath) : '';
-      const stored = await this.saveMedia(sourcePath, path.basename(sourcePath));
-      const data = Object.assign({}, options, {
-        content: transcript,
-        source: stored,
-        type: 'audio'
-      });
-      return this.createCard(data);
+  removeCardFromDeck(cardId: string, deckName: string) {
+    const deck = this.decks.get(deckName.toLowerCase());
+    const card = this.cards.get(cardId);
+    if (!deck || !card || !deck.cards.has(card.id)) {
+      return false;
     }
+    deck.removeCard(card);
+    this.emit('cardUpdated', card);
+    this.emit('deckUpdated', deck);
+    if (this.db) {
+      this.db.saveCard(card).catch(e => this.emit('error', e));
+    }
+    return true;
+  }
 
-    async createVideoNote(sourcePath: string, options: Partial<CardData> = {}) {
-      const transcript = this.ai.transcribe ? await this.ai.transcribe(sourcePath) : '';
-      const stored = await this.saveMedia(sourcePath, path.basename(sourcePath));
-      const data = Object.assign({}, options, {
-        content: transcript,
-        source: stored,
-        type: 'video'
-      });
-      return this.createCard(data);
+  listDecks() {
+    return Array.from(this.decks.values()).map(deck => ({
+      name: deck.name,
+      cards: Array.from(deck.cards),
+      size: deck.cards.size,
+    }));
+  }
+
+  getDeckSnapshot(deckName: string) {
+    const deck = this.decks.get(deckName.toLowerCase());
+    if (!deck) {
+      return null;
     }
+    return {
+      name: deck.name,
+      cards: Array.from(deck.cards),
+      size: deck.cards.size,
+    };
+  }
+
+  setBackgroundProcessing(enabled: boolean) {
+    this.backgroundProcessing = enabled;
+  }
+
+  private async _createTranscribedMedia(kind: 'audio' | 'video', sourcePath: string, options: Partial<CardData> = {}) {
+    const transcript = this.ai.transcribe ? await this.ai.transcribe(sourcePath) : '';
+    const stored = await this.saveMedia(sourcePath, path.basename(sourcePath));
+    return this.createCard({
+      ...options,
+      content: options.content ?? transcript,
+      source: stored,
+      type: kind,
+    });
+  }
+
+  async createAudioNote(sourcePath: string, options: Partial<CardData> = {}) {
+    return this._createTranscribedMedia('audio', sourcePath, options);
+  }
+
+  async createVideoNote(sourcePath: string, options: Partial<CardData> = {}) {
+    return this._createTranscribedMedia('video', sourcePath, options);
+  }
 
   async updateCard(cardId: string, data: Partial<CardData>) {
     const card = this.cards.get(cardId);
@@ -589,6 +629,30 @@ class MemoryApp extends EventEmitter {
     this.cardBuckets.delete(id);
   }
 
+  private async _fetchSuggestionsForTags(tags: Iterable<string>, cardType?: string, limit = 3) {
+    if (limit <= 0) {
+      return [];
+    }
+    const seen = new Set<string>();
+    const pending: Promise<any>[] = [];
+    for (const rawTag of tags) {
+      if (pending.length >= limit) {
+        break;
+      }
+      const tag = String(rawTag || '').trim();
+      if (!tag || seen.has(tag)) {
+        continue;
+      }
+      seen.add(tag);
+      pending.push(fetchSuggestion(tag, cardType));
+    }
+    if (pending.length === 0) {
+      return [];
+    }
+    const results = await Promise.all(pending);
+    return results.filter(Boolean);
+  }
+
   async getCardSuggestions(cardId: string, limit = 3) {
     if (!this.webSuggestionsEnabled) {
       return [];
@@ -597,39 +661,23 @@ class MemoryApp extends EventEmitter {
     if (!card) {
       return [];
     }
-    const pending: Promise<any>[] = [];
-    for (const tag of card.tags) {
-      if (pending.length >= limit) {
-        break;
-      }
-      pending.push(fetchSuggestion(tag, card.type));
-    }
-    const results = await Promise.all(pending);
-    return results.filter(r => r);
+    return this._fetchSuggestionsForTags(card.tags, card.type, limit);
   }
 
   async getThemeSuggestions(limit = 3) {
     if (!this.webSuggestionsEnabled) {
       return [];
     }
-    const counts = new Map();
+    const counts = new Map<string, number>();
     for (const card of this.cards.values()) {
       for (const tag of card.tags) {
         counts.set(tag, (counts.get(tag) || 0) + 1);
       }
     }
-    const sorted = Array.from(counts.entries())
+    const ordered = Array.from(counts.entries())
       .sort((a, b) => b[1] - a[1])
       .map(([tag]) => tag);
-    const pending: Promise<any>[] = [];
-    for (const tag of sorted) {
-      if (pending.length >= limit) {
-        break;
-      }
-      pending.push(fetchSuggestion(tag));
-    }
-    const results = await Promise.all(pending);
-    return results.filter(r => r);
+    return this._fetchSuggestionsForTags(ordered, undefined, limit);
   }
 
   async getWebSuggestions(limit = 3) {
@@ -931,6 +979,162 @@ class MemoryApp extends EventEmitter {
     return this.ai.chat(query, this);
   }
 
+  private _createFuse() {
+    return new Fuse<Card>([], { keys: ['title', 'content', 'description', 'tags'] });
+  }
+
+  private _resetToEmptyState() {
+    this.cards = new Map();
+    this.decks = new Map();
+    this.links = new Map();
+    this.linksByCard = new Map();
+    this.tagIndex = new Map();
+    this.usageStats = new Map();
+    this.cardBuckets = new Map();
+    this.lshBuckets = new Map();
+    this.lshPlanes = [];
+    this.embeddingDim = 0;
+    this.nextId = 1;
+    this.nextLinkId = 1;
+    this.fuse = this._createFuse();
+    this.workerTasks = new Map();
+    this.workerSeq = 0;
+  }
+
+  private _applySnapshot(data: any, { reset = false }: { reset?: boolean } = {}) {
+    if (!data || typeof data !== 'object') {
+      throw new Error('Invalid snapshot data');
+    }
+    if (reset) {
+      this._resetToEmptyState();
+    } else {
+      this.cards.clear();
+      this.decks.clear();
+      this.links.clear();
+      this.linksByCard.clear();
+      this.tagIndex.clear();
+      this.cardBuckets.clear();
+      this.lshBuckets.clear();
+      this.lshPlanes = [];
+      this.embeddingDim = 0;
+      this.nextId = 1;
+      this.nextLinkId = 1;
+      this.fuse = this._createFuse();
+      this.usageStats.clear();
+      this.workerTasks.clear();
+      this.workerSeq = 0;
+    }
+
+    for (const cardData of data.cards || []) {
+      const copy: any = { ...cardData };
+      if (copy.tags) {
+        copy.tags = copy.tags.map((t: string) => t.toLowerCase());
+      }
+      if (copy.decks) {
+        copy.decks = copy.decks.map((d: string) => d.toLowerCase());
+      }
+      const card = new Card(copy);
+      this.cards.set(card.id, card);
+      this._addToTagIndex(card);
+      if (card.embedding) {
+        this._addToLSH(card);
+      }
+      const num = Number(card.id);
+      if (!Number.isNaN(num) && num >= this.nextId) {
+        this.nextId = num + 1;
+      }
+    }
+
+    for (const deckData of data.decks || []) {
+      if (!deckData || !deckData.name) {
+        continue;
+      }
+      const name = String(deckData.name).toLowerCase();
+      let deck = this.decks.get(name);
+      if (!deck) {
+        deck = new Deck(name);
+        this.decks.set(name, deck);
+      }
+      for (const cardId of deckData.cards || []) {
+        const card = this.cards.get(cardId);
+        if (!card || deck.cards.has(card.id)) {
+          continue;
+        }
+        deck.addCard(card);
+      }
+    }
+
+    for (const card of this.cards.values()) {
+      for (const deckName of card.decks) {
+        let deck = this.decks.get(deckName);
+        if (!deck) {
+          deck = new Deck(deckName);
+          this.decks.set(deckName, deck);
+        }
+        if (!deck.cards.has(card.id)) {
+          deck.addCard(card);
+        }
+      }
+    }
+
+    this.links.clear();
+    this.linksByCard.clear();
+    for (const linkData of data.links || []) {
+      if (!linkData) {
+        continue;
+      }
+      const from = linkData.from;
+      const to = linkData.to;
+      if (!this.cards.has(from) || !this.cards.has(to)) {
+        continue;
+      }
+      const link = new Link({
+        id: linkData.id,
+        from,
+        to,
+        type: (linkData.type || 'related').toLowerCase(),
+        annotation: linkData.annotation,
+      });
+      this.links.set(link.id, link);
+      this._indexLink(link);
+      const num = Number(link.id);
+      if (!Number.isNaN(num) && num >= this.nextLinkId) {
+        this.nextLinkId = num + 1;
+      }
+    }
+
+    this._rebuildSearchIndex();
+    this._updateSmartDecks();
+  }
+
+  async loadSnapshot(data: any) {
+    this._applySnapshot(data, { reset: true });
+    if (this.db) {
+      const cards = Array.from(this.cards.values()).map(card => ({
+        id: card.id,
+        title: card.title,
+        content: card.content,
+        source: card.source,
+        tags: card.tags,
+        decks: card.decks,
+        type: card.type,
+        description: card.description,
+        createdAt: card.createdAt,
+        summary: card.summary,
+        illustration: card.illustration,
+        embedding: card.embedding ?? null,
+      }));
+      const links = Array.from(this.links.values()).map(link => ({
+        id: link.id,
+        from: link.from,
+        to: link.to,
+        type: link.type,
+        annotation: link.annotation,
+      }));
+      await this.db.replaceAll(cards, links);
+    }
+  }
+
   toJSON() {
     return {
       cards: Array.from(this.cards.values()).map(card => ({
@@ -1059,48 +1263,7 @@ class MemoryApp extends EventEmitter {
   static fromJSON(data) {
     const app = new MemoryApp();
     app.aiEnabled = false;
-    for (const cardData of data.cards || []) {
-      if (cardData.tags) {
-        cardData.tags = cardData.tags.map(t => t.toLowerCase());
-      }
-      if (cardData.decks) {
-        cardData.decks = cardData.decks.map(d => d.toLowerCase());
-      }
-      const card = new Card(cardData);
-      app.cards.set(card.id, card);
-      app._addToTagIndex(card);
-      const num = Number(card.id);
-      if (!Number.isNaN(num) && num >= app.nextId) {
-        app.nextId = num + 1;
-      }
-    }
-    for (const deckData of data.decks || []) {
-      const deck = app.getDeck(deckData.name);
-      for (const cardId of deckData.cards) {
-        const card = app.cards.get(cardId);
-        if (card) {
-          deck.addCard(card);
-        }
-      }
-    }
-    for (const linkData of data.links || []) {
-      // ensure cards exist before creating link
-      if (app.cards.has(linkData.from) && app.cards.has(linkData.to)) {
-        const link = new Link({
-          id: linkData.id,
-          from: linkData.from,
-          to: linkData.to,
-          type: (linkData.type || 'related').toLowerCase(),
-          annotation: linkData.annotation,
-        });
-        app.links.set(link.id, link);
-        app._indexLink(link);
-        const num = Number(link.id);
-        if (!Number.isNaN(num) && num >= app.nextLinkId) {
-          app.nextLinkId = num + 1;
-        }
-      }
-    }
+    app._applySnapshot(data, { reset: true });
     return app;
   }
 
@@ -1130,6 +1293,9 @@ class MemoryApp extends EventEmitter {
       const card = new Card(data);
       this.cards.set(card.id, card);
       this._addToTagIndex(card);
+      if (card.embedding) {
+        this._addToLSH(card);
+      }
       const num = Number(card.id);
       if (!Number.isNaN(num) && num >= this.nextId) {
         this.nextId = num + 1;
