@@ -99,6 +99,78 @@ class MemoryApp extends EventEmitter {
     }
   }
 
+  private _normalizeDeckName(name: string) {
+    return (name ?? '').trim().toLowerCase();
+  }
+
+  private _normalizeTag(tag: string) {
+    return (tag ?? '').trim().toLowerCase();
+  }
+
+  private _normalizeTagList(tags?: Iterable<string>) {
+    if (!tags) {
+      return [];
+    }
+    const result = new Set<string>();
+    for (const tag of tags) {
+      const norm = this._normalizeTag(tag);
+      if (norm) {
+        result.add(norm);
+      }
+    }
+    return Array.from(result);
+  }
+
+  private _normalizeDeckList(decks?: Iterable<string>) {
+    if (!decks) {
+      return [];
+    }
+    const result = new Set<string>();
+    for (const deck of decks) {
+      const norm = this._normalizeDeckName(deck);
+      if (norm) {
+        result.add(norm);
+      }
+    }
+    return Array.from(result);
+  }
+
+  private _persistCard(card: Card): Promise<void> {
+    if (!this.db) {
+      return Promise.resolve();
+    }
+    return this.db.saveCard(card).catch(e => {
+      this.emit('error', e);
+    });
+  }
+
+  private _persistLink(link: Link): Promise<void> {
+    if (!this.db) {
+      return Promise.resolve();
+    }
+    return this.db.saveLink(link).catch(e => {
+      this.emit('error', e);
+    });
+  }
+
+  private _deleteCardRecord(cardId: string): Promise<void> {
+    if (!this.db) {
+      return Promise.resolve();
+    }
+    return this.db.deleteCard(cardId).catch(e => {
+      this.emit('error', e);
+    });
+  }
+
+  private _deleteLinkRecord(linkId: string): Promise<void> {
+    if (!this.db) {
+      return Promise.resolve();
+    }
+    return this.db.deleteLink(linkId).catch(e => {
+      this.emit('error', e);
+    });
+  }
+
   private _runAI(action: string, payload: any): Promise<any> {
     if (!this.worker) {
       // Fallback to main-thread AI
@@ -133,14 +205,21 @@ class MemoryApp extends EventEmitter {
       throw new Error('Card ID already exists');
     }
     if (data.tags) {
-      data.tags = data.tags.map(t => t.toLowerCase());
+      data.tags = this._normalizeTagList(data.tags);
+    }
+    if (data.decks) {
+      data.decks = this._normalizeDeckList(data.decks);
     }
     const card = new Card(data);
     this.cards.set(card.id, card);
     this.emit('cardCreated', card);
+    const initialDecks = Array.from(card.decks);
     await this._processAndPersistCard(card);
     this._updateTagIndex(card);
     this._rebuildSearchIndex();
+    for (const deckName of initialDecks) {
+      this.addCardToDeck(card.id, deckName);
+    }
     this._updateSmartDecks();
     return card;
   }
@@ -191,7 +270,10 @@ class MemoryApp extends EventEmitter {
   }
 
   getDeck(name: string) {
-    const norm = name.toLowerCase();
+    const norm = this._normalizeDeckName(name);
+    if (!norm) {
+      throw new Error('Deck name is required');
+    }
     let deck = this.decks.get(norm);
     if (!deck) {
       deck = new Deck(norm);
@@ -213,14 +295,13 @@ class MemoryApp extends EventEmitter {
     deck.addCard(card);
     this.emit('cardUpdated', card);
     this.emit('deckUpdated', deck);
-    if (this.db) {
-      this.db.saveCard(card).catch(e => this.emit('error', e));
-    }
+    void this._persistCard(card);
     return deck;
   }
 
   removeCardFromDeck(cardId: string, deckName: string) {
-    const deck = this.decks.get(deckName.toLowerCase());
+    const norm = this._normalizeDeckName(deckName);
+    const deck = norm ? this.decks.get(norm) : undefined;
     const card = this.cards.get(cardId);
     if (!deck || !card || !deck.cards.has(card.id)) {
       return false;
@@ -228,9 +309,7 @@ class MemoryApp extends EventEmitter {
     deck.removeCard(card);
     this.emit('cardUpdated', card);
     this.emit('deckUpdated', deck);
-    if (this.db) {
-      this.db.saveCard(card).catch(e => this.emit('error', e));
-    }
+    void this._persistCard(card);
     return true;
   }
 
@@ -243,7 +322,11 @@ class MemoryApp extends EventEmitter {
   }
 
   getDeckSnapshot(deckName: string) {
-    const deck = this.decks.get(deckName.toLowerCase());
+    const norm = this._normalizeDeckName(deckName);
+    if (!norm) {
+      return null;
+    }
+    const deck = this.decks.get(norm);
     if (!deck) {
       return null;
     }
@@ -323,17 +406,14 @@ class MemoryApp extends EventEmitter {
         }
       }
     }
-    if (this.db) {
-      try {
-        await this.db.saveCard(card);
-      } catch (e) {
-        this.emit('error', e);
-      }
-    }
+    await this._persistCard(card);
   }
 
   searchByTag(tag: string) {
-    const t = tag.toLowerCase();
+    const t = this._normalizeTag(tag);
+    if (!t) {
+      return [];
+    }
     const ids = this.tagIndex.get(t);
     if (!ids) {
       return [];
@@ -401,18 +481,16 @@ class MemoryApp extends EventEmitter {
   async _setDeckCards(deckName: string, ids: Set<string>) {
     const deck = this.getDeck(deckName);
     const oldIds = new Set(deck.cards);
-    const ops: Promise<any>[] = [];
+    const pending: Promise<void>[] = [];
     let changed = false;
     for (const id of oldIds) {
       if (!ids.has(id)) {
         deck.cards.delete(id);
         const card = this.cards.get(id);
         if (card) {
-          card.decks.delete(deckName);
+          card.decks.delete(deck.name);
           this.emit('cardUpdated', card);
-          if (this.db) {
-            ops.push(this.db.saveCard(card));
-          }
+          pending.push(this._persistCard(card));
         }
         changed = true;
       }
@@ -423,19 +501,13 @@ class MemoryApp extends EventEmitter {
         if (card) {
           deck.addCard(card);
           this.emit('cardUpdated', card);
-          if (this.db) {
-            ops.push(this.db.saveCard(card));
-          }
+          pending.push(this._persistCard(card));
         }
         changed = true;
       }
     }
-    if (this.db && ops.length) {
-      try {
-        await Promise.all(ops);
-      } catch (e) {
-        this.emit('error', e);
-      }
+    if (pending.length) {
+      await Promise.all(pending);
     }
     if (changed) {
       this.emit('deckUpdated', deck);
@@ -692,11 +764,7 @@ class MemoryApp extends EventEmitter {
     }
     const deckNames = Array.from(card.decks);
     for (const deckName of deckNames) {
-      const deck = this.decks.get(deckName);
-      if (deck) {
-        deck.removeCard(card);
-        this.emit('deckUpdated', deck);
-      }
+      this.removeCardFromDeck(card.id, deckName);
     }
     // remove links involving this card
     const linkIds = this.linksByCard.get(cardId);
@@ -710,15 +778,16 @@ class MemoryApp extends EventEmitter {
     this._removeFromTagIndex(card);
     this._rebuildSearchIndex();
     this.emit('cardRemoved', card);
-    if (this.db) {
-      this.db.deleteCard(cardId).catch(e => this.emit('error', e));
-    }
+    void this._deleteCardRecord(cardId);
     this._updateSmartDecks();
     return true;
   }
 
   removeDeck(deckName) {
-    const norm = deckName.toLowerCase();
+    const norm = this._normalizeDeckName(deckName);
+    if (!norm) {
+      return false;
+    }
     const deck = this.decks.get(norm);
     if (!deck) {
       return false;
@@ -726,11 +795,9 @@ class MemoryApp extends EventEmitter {
     for (const cardId of Array.from(deck.cards)) {
       const card = this.cards.get(cardId);
       if (card) {
-        card.decks.delete(norm);
+        deck.removeCard(card);
         this.emit('cardUpdated', card);
-        if (this.db) {
-          this.db.saveCard(card).catch(e => this.emit('error', e));
-        }
+        void this._persistCard(card);
       }
     }
     this.decks.delete(norm);
@@ -775,7 +842,7 @@ class MemoryApp extends EventEmitter {
     if (!from || !to) {
       throw new Error('Both cards must exist to create a link');
     }
-    const normType = type.toLowerCase();
+    const normType = this._normalizeTag(type ?? 'related') || 'related';
     for (const l of this.links.values()) {
       if (l.from === fromId && l.to === toId && l.type === normType) {
         throw new Error('Link already exists');
@@ -785,9 +852,7 @@ class MemoryApp extends EventEmitter {
     const link = new Link({ id, from: fromId, to: toId, type: normType, annotation });
     this.links.set(id, link);
     this._indexLink(link);
-    if (this.db) {
-      this.db.saveLink(link).catch(e => this.emit('error', e));
-    }
+    void this._persistLink(link);
     this.emit('linkCreated', link);
     return link;
   }
@@ -797,19 +862,17 @@ class MemoryApp extends EventEmitter {
     if (!link) {
       return null;
     }
-    const newType = data.type !== undefined ? data.type.toLowerCase() : link.type;
+    const nextType = data.type !== undefined ? (this._normalizeTag(data.type) || link.type) : link.type;
     for (const l of this.links.values()) {
-      if (l !== link && l.from === link.from && l.to === link.to && l.type === newType) {
+      if (l !== link && l.from === link.from && l.to === link.to && l.type === nextType) {
         throw new Error('Link already exists');
       }
     }
     link.update({
-      type: data.type !== undefined ? newType : undefined,
+      type: data.type !== undefined ? nextType : undefined,
       annotation: data.annotation,
     });
-    if (this.db) {
-      this.db.saveLink(link).catch(e => this.emit('error', e));
-    }
+    void this._persistLink(link);
     this.emit('linkUpdated', link);
     return link;
   }
@@ -849,9 +912,7 @@ class MemoryApp extends EventEmitter {
     const res = this.links.delete(linkId);
     if (res && link) {
       this._unindexLink(link);
-      if (this.db) {
-        this.db.deleteLink(linkId).catch(e => this.emit('error', e));
-      }
+      void this._deleteLinkRecord(linkId);
       this.emit('linkRemoved', link);
     }
     return res;
@@ -862,11 +923,15 @@ class MemoryApp extends EventEmitter {
     let tagFilter: string | null = null;
     let linkTypeFilter: string | null = null;
     if (typeof options === 'string') {
-      deckName = options.toLowerCase();
+      const normalized = this._normalizeDeckName(options);
+      deckName = normalized || null;
     } else {
-      deckName = options.deck ? options.deck.toLowerCase() : null;
-      tagFilter = options.tag ? options.tag.toLowerCase() : null;
-      linkTypeFilter = options.linkType ? options.linkType.toLowerCase() : null;
+      const normalizedDeck = options.deck ? this._normalizeDeckName(options.deck) : '';
+      deckName = normalizedDeck || null;
+      const normalizedTag = options.tag ? this._normalizeTag(options.tag) : '';
+      tagFilter = normalizedTag || null;
+      const normalizedType = options.linkType ? this._normalizeTag(options.linkType) : '';
+      linkTypeFilter = normalizedType || null;
     }
 
     let cardIds: Set<string>;
@@ -1027,12 +1092,8 @@ class MemoryApp extends EventEmitter {
 
     for (const cardData of data.cards || []) {
       const copy: any = { ...cardData };
-      if (copy.tags) {
-        copy.tags = copy.tags.map((t: string) => t.toLowerCase());
-      }
-      if (copy.decks) {
-        copy.decks = copy.decks.map((d: string) => d.toLowerCase());
-      }
+      copy.tags = this._normalizeTagList(copy.tags);
+      copy.decks = this._normalizeDeckList(copy.decks);
       const card = new Card(copy);
       this.cards.set(card.id, card);
       this._addToTagIndex(card);
@@ -1049,7 +1110,10 @@ class MemoryApp extends EventEmitter {
       if (!deckData || !deckData.name) {
         continue;
       }
-      const name = String(deckData.name).toLowerCase();
+      const name = this._normalizeDeckName(String(deckData.name));
+      if (!name) {
+        continue;
+      }
       let deck = this.decks.get(name);
       if (!deck) {
         deck = new Deck(name);
@@ -1288,8 +1352,8 @@ class MemoryApp extends EventEmitter {
     if (!this.db) return;
     const stored = await this.db.loadCards();
     for (const data of stored) {
-      data.tags = Array.from(data.tags).map(t => t.toLowerCase());
-      data.decks = Array.from(data.decks).map(d => d.toLowerCase());
+      data.tags = this._normalizeTagList(data.tags as Iterable<string>);
+      data.decks = this._normalizeDeckList(data.decks as Iterable<string>);
       const card = new Card(data);
       this.cards.set(card.id, card);
       this._addToTagIndex(card);
