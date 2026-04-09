@@ -142,25 +142,34 @@ export default function CardGrid({ cards, onSelect, onEdit, onDelete, cardBg, ca
   const [dims, setDims] = useState({ width: 0, height: 0, columnCount: 1 });
 
   useEffect(() => {
-    function handleResize() {
+    let rafId = null;
+    function measure() {
       if (!containerRef.current) return;
       const width = containerRef.current.clientWidth;
+      if (!width) {
+        // Layout not ready — retry on next animation frame
+        rafId = requestAnimationFrame(measure);
+        return;
+      }
       const columnCount = width >= 768 ? 3 : width >= 640 ? 2 : 1;
-      const height = window.innerHeight - containerRef.current.getBoundingClientRect().top - 20;
+      const rect = containerRef.current.getBoundingClientRect();
+      const height = Math.max(500, window.innerHeight - rect.top - 16);
       setDims({ width, height, columnCount });
     }
-    handleResize();
-    window.addEventListener('resize', handleResize);
-    return () => window.removeEventListener('resize', handleResize);
+    measure();
+    const ro = new ResizeObserver(measure);
+    if (containerRef.current) ro.observe(containerRef.current);
+    window.addEventListener('resize', measure);
+    return () => {
+      if (rafId) cancelAnimationFrame(rafId);
+      ro.disconnect();
+      window.removeEventListener('resize', measure);
+    };
   }, []);
-
-  if (!cards.length) {
-    return <p className="text-gray-500 dark:text-gray-400">No cards found</p>;
-  }
 
   const rowCount = Math.ceil(cards.length / dims.columnCount);
   const columnWidth = dims.columnCount ? dims.width / dims.columnCount : dims.width;
-  const rowHeight = 360;
+  const rowHeight = 280;
 
   const escapeRegExp = s => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
   const highlightText = (text, q) => {
@@ -182,7 +191,7 @@ export default function CardGrid({ cards, onSelect, onEdit, onDelete, cardBg, ca
           className="group relative border-4 p-4 rounded-xl cursor-pointer shadow-md hover:shadow-xl transform hover:-translate-y-1 hover:scale-105 transition bg-white dark:bg-gray-800 dark:text-white"
           style={{
             backgroundColor: data.cardBg,
-            borderColor: card.tags[0] ? tagColor(card.tags[0]) : data.cardBorder,
+            borderColor: (card.tags?.[0]) ? tagColor(card.tags[0]) : data.cardBorder,
           }}
           onClick={() => data.onSelect(card)}
           role="button"
@@ -247,9 +256,14 @@ export default function CardGrid({ cards, onSelect, onEdit, onDelete, cardBg, ca
             <img src={card.image || card.illustration} alt={card.title} className="mb-2 max-h-32 rounded object-cover w-full" />
           )}
 
-          {/* Text illustration */}
-          {card.type === 'text' && card.illustration && (
-            <img src={card.illustration} alt="illustration" className="mb-2 max-h-24 rounded" />
+          {/* Illustration — shown for all types that don't have a dedicated visual */}
+          {card.illustration && !['youtube', 'tweet'].includes(card.type) && !(card.type === 'image' && (card.image || card.illustration === card.image)) && (
+            <img
+              src={card.illustration}
+              alt="illustration"
+              className="mb-2 max-h-24 rounded object-cover w-full"
+              onError={e => { e.currentTarget.style.display = 'none'; }}
+            />
           )}
 
           {/* Uploaded video */}
@@ -311,8 +325,14 @@ export default function CardGrid({ cards, onSelect, onEdit, onDelete, cardBg, ca
   };
 
   return (
-    <div ref={containerRef} className="w-full h-full">
-      {dims.height > 0 && (
+    <div ref={containerRef} className="w-full">
+      {!cards.length ? (
+        <div className="flex flex-col items-center justify-center py-16 text-gray-400 dark:text-gray-500">
+          <span className="text-4xl mb-3">🗂</span>
+          <p className="text-sm">No cards found</p>
+          <p className="text-xs mt-1">Try clearing your search or deck filter</p>
+        </div>
+      ) : dims.width > 0 && dims.height > 0 ? (
         <Grid
           columnCount={dims.columnCount}
           columnWidth={columnWidth}
@@ -324,7 +344,7 @@ export default function CardGrid({ cards, onSelect, onEdit, onDelete, cardBg, ca
         >
           {Cell}
         </Grid>
-      )}
+      ) : null}
     </div>
   );
 }

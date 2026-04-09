@@ -50,7 +50,18 @@ function loadTransformers(): Promise<any> {
 
 export class SimpleAI implements AIProvider {
   async summarize(text: string): Promise<string> {
-    return text.split(/\s+/).slice(0, 20).join(' ');
+    if (!text || text.trim().length === 0) return '';
+    // Extract first 2-3 meaningful sentences (at least 6 words each)
+    const sentences = text
+      .replace(/\n+/g, ' ')
+      .split(/(?<=[.!?])\s+/)
+      .map(s => s.trim())
+      .filter(s => s.split(/\s+/).length >= 6 && s.length < 400);
+    if (sentences.length > 0) {
+      return sentences.slice(0, 2).join(' ');
+    }
+    // Fallback: first 150 chars
+    return text.trim().slice(0, 150);
   }
 
   async summarizeCard(card: Card): Promise<string> {
@@ -58,30 +69,11 @@ export class SimpleAI implements AIProvider {
     return this.summarize(text);
   }
 
-  async generateIllustration(title: string): Promise<string> {
-    const hash = [...title].reduce((h, ch) => (h * 31 + ch.charCodeAt(0)) >>> 0, 0);
-    let seed = hash || 1;
-    const rand = () => {
-      seed = (seed * 1664525 + 1013904223) >>> 0;
-      return seed / 0xffffffff;
-    };
-    const palette = ['#f15bb5', '#fee440', '#00bbf9', '#00f5d4', '#9b5de5'];
-    let svg = '<svg xmlns="http://www.w3.org/2000/svg" width="300" height="300">';
-    for (let i = 0; i < 3; i++) {
-      const color = palette[Math.floor(rand() * palette.length)];
-      const x = Math.floor(rand() * 150);
-      const y = Math.floor(rand() * 300);
-      const w = 20 + Math.floor(rand() * 80);
-      const h = 20 + Math.floor(rand() * 80);
-      const mirrorX = 300 - x - w;
-      svg += `<rect x="${x}" y="${y}" width="${w}" height="${h}" fill="${color}" opacity="0.7"/>`;
-      svg += `<rect x="${mirrorX}" y="${y}" width="${w}" height="${h}" fill="${color}" opacity="0.7"/>`;
-    }
-    const circleColor = palette[Math.floor(rand() * palette.length)];
-    const radius = 40 + rand() * 50;
-    svg += `<circle cx="150" cy="150" r="${radius}" fill="${circleColor}" opacity="0.5"/>`;
-    svg += '</svg>';
-    return `data:image/svg+xml;base64,${Buffer.from(svg).toString('base64')}`;
+  async generateIllustration(prompt: string): Promise<string> {
+    // Use Pollinations.ai — free, no API key required, generates real images from prompts
+    const cleanPrompt = `minimalist flat design illustration of ${prompt}, vibrant colors, simple shapes, digital art`;
+    const seed = [...prompt].reduce((h, ch) => (h * 31 + ch.charCodeAt(0)) >>> 0, 0) % 99999;
+    return `https://image.pollinations.ai/prompt/${encodeURIComponent(cleanPrompt)}?width=400&height=280&nologo=true&seed=${seed}&model=flux`;
   }
 
   async chat(query: string, app: MemoryApp): Promise<string> {
@@ -183,7 +175,9 @@ export class HuggingFaceAI implements AIProvider {
       const base64 = await this._binary(this.models.image, { inputs: styled });
       return `data:image/png;base64,${base64}`;
     } catch (e) {
-      return `illustration-${prompt.toLowerCase().replace(/[^a-z0-9]+/g, '_')}.png`;
+      // Fall back to Pollinations on HuggingFace failure
+      const seed = [...prompt].reduce((h, ch) => (h * 31 + ch.charCodeAt(0)) >>> 0, 0) % 99999;
+      return `https://image.pollinations.ai/prompt/${encodeURIComponent(`illustration of ${prompt}`)}?width=400&height=280&nologo=true&seed=${seed}&model=flux`;
     }
   }
 

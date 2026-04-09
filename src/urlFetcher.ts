@@ -9,6 +9,8 @@ export interface UrlMeta {
   embedUrl?: string;
   handle?: string;
   tweetId?: string;
+  /** Full extracted content (transcript for YouTube, article body for articles) */
+  content?: string;
 }
 
 const FETCH_TIMEOUT_MS = 8000;
@@ -108,7 +110,7 @@ function isPrivateUrl(url: string): boolean {
   }
 }
 
-export async function fetchUrlMeta(rawUrl: string): Promise<UrlMeta> {
+export async function fetchUrlMeta(rawUrl: string, fetchContent = false): Promise<UrlMeta> {
   if (isPrivateUrl(rawUrl)) {
     throw new Error('Private or loopback URLs are not allowed');
   }
@@ -119,26 +121,7 @@ export async function fetchUrlMeta(rawUrl: string): Promise<UrlMeta> {
   // YouTube — use free oEmbed (no API key needed)
   if (type === 'youtube') {
     const videoId = extractYouTubeId(rawUrl);
-    try {
-      const oembedUrl = `https://www.youtube.com/oembed?url=${encodeURIComponent(rawUrl)}&format=json`;
-      const res = await fetch(oembedUrl, { signal: AbortSignal.timeout(FETCH_TIMEOUT_MS) });
-      if (res.ok) {
-        const data = await res.json() as { title?: string; author_name?: string; thumbnail_url?: string };
-        return {
-          type: 'youtube',
-          url: rawUrl,
-          title: data.title || `YouTube – ${videoId}`,
-          description: data.author_name ? `Video by ${data.author_name}` : undefined,
-          image: data.thumbnail_url,
-          videoId: videoId || undefined,
-          embedUrl: videoId ? `https://www.youtube.com/embed/${videoId}` : undefined,
-          domain,
-        };
-      }
-    } catch {
-      // fall through to generic
-    }
-    return {
+    let meta: UrlMeta = {
       type: 'youtube',
       url: rawUrl,
       title: `YouTube – ${videoId || rawUrl}`,
@@ -146,6 +129,26 @@ export async function fetchUrlMeta(rawUrl: string): Promise<UrlMeta> {
       embedUrl: videoId ? `https://www.youtube.com/embed/${videoId}` : undefined,
       domain,
     };
+    try {
+      const oembedUrl = `https://www.youtube.com/oembed?url=${encodeURIComponent(rawUrl)}&format=json`;
+      const res = await fetch(oembedUrl, { signal: AbortSignal.timeout(FETCH_TIMEOUT_MS) });
+      if (res.ok) {
+        const data = await res.json() as { title?: string; author_name?: string; thumbnail_url?: string };
+        meta = {
+          ...meta,
+          title: data.title || meta.title,
+          description: data.author_name ? `Video by ${data.author_name}` : undefined,
+          image: data.thumbnail_url,
+        };
+      }
+    } catch { /* fall through */ }
+
+    if (fetchContent && videoId) {
+      const { extractContent } = await import('./contentExtractor.js');
+      const extracted = await extractContent('youtube', { videoId });
+      if (extracted.isRich) meta.content = extracted.text;
+    }
+    return meta;
   }
 
   // Twitter/X — extract from URL structure, no API needed
@@ -154,34 +157,30 @@ export async function fetchUrlMeta(rawUrl: string): Promise<UrlMeta> {
     const handle = extractHandle(rawUrl);
     let title = handle ? `Tweet by ${handle}` : 'Tweet';
     let description: string | undefined;
-    // Try oEmbed (works without auth for public tweets)
     try {
       const oembedUrl = `https://publish.twitter.com/oembed?url=${encodeURIComponent(rawUrl)}&omit_script=true`;
       const res = await fetch(oembedUrl, { signal: AbortSignal.timeout(FETCH_TIMEOUT_MS) });
       if (res.ok) {
         const data = await res.json() as { html?: string; author_name?: string };
         if (data.author_name) title = `Tweet by @${data.author_name}`;
-        // Extract text from HTML snippet
         if (data.html) {
-          const text = data.html.replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim();
-          description = text.slice(0, 280);
+          description = data.html.replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim().slice(0, 280);
         }
       }
-    } catch {
-      // fall through
-    }
+    } catch { /* fall through */ }
     return {
       type: 'tweet',
       url: rawUrl,
       title,
       description,
+      content: description,
       handle: handle || undefined,
       tweetId: tweetId || undefined,
       domain,
     };
   }
 
-  // Article / generic URL — fetch HTML and extract OG tags
+  // Article / generic URL — fetch HTML, extract OG tags + optionally full body
   try {
     const html = await fetchWithTimeout(rawUrl);
     const title =
@@ -197,20 +196,15 @@ export async function fetchUrlMeta(rawUrl: string): Promise<UrlMeta> {
       extractMetaTag(html, 'og:image') ||
       extractMetaTag(html, 'twitter:image');
 
-    return {
-      type: 'article',
-      url: rawUrl,
-      title,
-      description,
-      image,
-      domain,
-    };
+    let content: string | undefined;
+    if (fetchContent) {
+      const { extractContent } = await import('./contentExtractor.js');
+      const extracted = await extractContent('article', { url: rawUrl, existingContent: description });
+      if (extracted.isRich) content = extracted.text;
+    }
+
+    return { type: 'article', url: rawUrl, title, description, image, content, domain };
   } catch {
-    return {
-      type: 'link',
-      url: rawUrl,
-      title: rawUrl,
-      domain,
-    };
+    return { type: 'link', url: rawUrl, title: rawUrl, domain };
   }
 }

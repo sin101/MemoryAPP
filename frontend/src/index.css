@@ -40,6 +40,13 @@ textarea::placeholder {
   @apply text-gray-400;
 }
 
+/* Progress bar indeterminate animation */
+@keyframes progress {
+  0%   { margin-left: 0;    width: 40%; }
+  50%  { margin-left: 45%;  width: 40%; }
+  100% { margin-left: 90%;  width: 10%; }
+}
+
 /* Focus ring */
 input:not([type="color"]):not([type="checkbox"]):not([type="file"]):focus,
 textarea:focus,

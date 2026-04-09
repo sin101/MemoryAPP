@@ -1,7 +1,8 @@
 import React from 'react';
 
 export default function DeckSidebar({ decks, current, onSelect }) {
-  const items = [['All', null], ...Object.entries(decks)];
+  // Object.entries gives [name, count] pairs — we only want the name as value
+  const items = [['All', null], ...Object.keys(decks).map(name => [name, name])];
 
   return (
     <aside className="w-48 shrink-0 border-r border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 flex flex-col pt-3 px-2 pb-4">

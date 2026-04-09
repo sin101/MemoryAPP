@@ -227,10 +227,14 @@ export default function App() {
         const res = await fetch('/api/cards');
         if (res.ok) {
           const data = await res.json();
-          const cs = (data.cards || []).map(c => {
-            c.decks = c.decks || [];
-            return c;
-          });
+          const cs = (data.cards || []).map(c => ({
+            ...c,
+            tags:  Array.isArray(c.tags)  ? c.tags  : [],
+            decks: Array.isArray(c.decks) ? c.decks : [],
+            // Restore audio/video URLs from source field if not already set
+            audio: c.audio || (c.type === 'audio' && c.source && !c.source.startsWith('data:') ? `/api/media/${c.source}` : undefined),
+            video: c.video || (c.type === 'video' && c.source && !c.source.startsWith('data:') ? `/api/media/${c.source}` : undefined),
+          }));
           setCards(cs);
           await saveCards(cs);
           setLinks(data.links || []);
@@ -330,12 +334,18 @@ export default function App() {
   const addCard = data => {
     const newCard = {
       id: String(Date.now()),
-      tags: [],
-      decks: [],
       createdAt: new Date().toISOString(),
       ...data,
+      tags:  Array.isArray(data.tags)  ? data.tags  : [],
+      decks: Array.isArray(data.decks) ? data.decks : [],
     };
     setCards(prev => {
+      // If SSE already added this card (by server id), update in-place instead
+      if (newCard.id && prev.some(c => c.id === newCard.id)) {
+        const next = prev.map(c => c.id === newCard.id ? { ...c, ...newCard } : c);
+        saveCards(next);
+        return next;
+      }
       const next = [...prev, newCard];
       saveCards(next);
       return next;
@@ -535,7 +545,16 @@ export default function App() {
       es.addEventListener('cardCreated', e => {
         const card = JSON.parse(e.data);
         setCards(prev => {
-          const next = [...prev, card];
+          // Deduplicate: skip if already added via optimistic onAdd
+          if (prev.some(c => c.id === card.id)) return prev;
+          const next = [
+            ...prev,
+            {
+              ...card,
+              tags:  Array.isArray(card.tags)  ? card.tags  : [],
+              decks: Array.isArray(card.decks) ? card.decks : [],
+            },
+          ];
           saveCards(next);
           return next;
         });

@@ -4,11 +4,13 @@ import helmet from 'helmet';
 import rateLimit from 'express-rate-limit';
 import { promises as fs } from 'fs';
 import crypto from 'crypto';
+import path from 'path';
 import MemoryApp from './app.js';
 import { z } from 'zod';
 import { createServer } from 'http';
 import { config } from './config.js';
 import { fetchUrlMeta } from './urlFetcher.js';
+import { analyzeContent } from './contentAnalyzer.js';
 
 export const clients = new Set<express.Response>();
 
@@ -25,7 +27,20 @@ api.use(
   })
 );
 api.use(cors());
-api.use(express.json({ limit: '10mb' }));
+api.use(express.json({ limit: '50mb' }));
+
+// Helper: enrich card JSON with audio/video media URLs for client consumption
+function serializeCard(card: any): Record<string, unknown> {
+  const json = typeof card.toJSON === 'function' ? card.toJSON() : { ...card };
+  if ((json.type === 'audio' || json.type === 'video') && json.source
+      && !String(json.source).startsWith('http')
+      && !String(json.source).startsWith('data:')) {
+    const mediaUrl = `/api/media/${json.source}`;
+    if (json.type === 'audio') json.audio = mediaUrl;
+    if (json.type === 'video') json.video = mediaUrl;
+  }
+  return json;
+}
 
 api.get('/api/events', (req, res) => {
   res.setHeader('Content-Type', 'text/event-stream');
@@ -161,9 +176,11 @@ api.get('/api/cards', (req, res) => {
   const o = offset ? parseInt(offset, 10) : undefined;
   const l = limit ? parseInt(limit, 10) : undefined;
   if (o !== undefined || l !== undefined) {
-    res.json(app.getCards(o, l));
+    const result = app.getCards(o, l);
+    res.json({ ...result, cards: result.cards.map(c => serializeCard(c)) });
   } else {
-    res.json(app.toJSON());
+    const json = app.toJSON();
+    res.json({ ...json, cards: (json.cards || []).map((c: any) => serializeCard(c)) });
   }
 });
 
@@ -175,7 +192,7 @@ api.get('/api/cards/:id', (req, res, next) => {
       res.status(404).send('Not found');
       return;
     }
-    res.json(card.toJSON());
+    res.json(serializeCard(card));
   } catch (e) {
     next(e);
   }
@@ -190,7 +207,7 @@ api.put('/api/cards/:id', async (req, res, next) => {
       res.status(404).send('Not found');
       return;
     }
-    res.json(card.toJSON());
+    res.json(serializeCard(card));
   } catch (e) {
     next(e);
   }
@@ -282,6 +299,28 @@ api.delete('/api/decks/:name', (req, res, next) => {
   }
 });
 
+api.get('/api/media/*', async (req, res, next) => {
+  try {
+    const filePath = (req.params as any)[0];
+    if (!filePath || filePath.includes('..')) {
+      res.status(400).send('Invalid path');
+      return;
+    }
+    const data = await app.loadMedia(filePath);
+    const ext = filePath.split('.').pop()?.toLowerCase() || '';
+    const mimeTypes: Record<string, string> = {
+      webm: 'audio/webm', mp3: 'audio/mpeg', mp4: 'video/mp4',
+      wav: 'audio/wav', ogg: 'audio/ogg', flac: 'audio/flac',
+      m4a: 'audio/mp4', mkv: 'video/x-matroska', mov: 'video/quicktime',
+    };
+    res.setHeader('Content-Type', mimeTypes[ext] || 'application/octet-stream');
+    res.setHeader('Cache-Control', 'public, max-age=3600');
+    res.send(data);
+  } catch (e) {
+    next(e);
+  }
+});
+
 api.post('/api/illustrate', async (req, res, next) => {
   try {
     const { prompt } = illustrateSchema.parse(req.body);
@@ -312,7 +351,7 @@ api.post('/api/audio-note', async (req, res, next) => {
         contentType: data.contentType,
         duration: data.duration,
       });
-      res.json(card);
+      res.json(serializeCard(card));
     } finally {
       await fs.unlink(file).catch(() => {});
     }
@@ -333,7 +372,7 @@ api.post('/api/video-note', async (req, res, next) => {
     await fs.writeFile(file, Buffer.from(data.video, 'base64'));
     try {
       const card = await app.createVideoNote(file, { title: data.title || 'Video note' });
-      res.json(card);
+      res.json(serializeCard(card));
     } finally {
       await fs.unlink(file).catch(() => {});
     }
@@ -348,32 +387,69 @@ const clipSchema = z.object({
   content: z.string().optional(),
   screenshot: z.string().optional(),
   decks: z.array(z.string()).optional(),
+  tags: z.array(z.string()).optional(),
 });
 
 api.post('/api/clip', async (req, res, next) => {
   try {
     const data = clipSchema.parse(req.body);
+
+    // Fetch metadata + full content (transcript/article body)
     let meta;
     try {
-      meta = await fetchUrlMeta(data.url);
+      meta = await fetchUrlMeta(data.url, true);
     } catch {
       meta = null;
     }
+
+    const richContent = data.content || meta?.content || meta?.videoId || meta?.description || '';
+
+    // Analyze content for tag suggestions
+    const analysis = analyzeContent(
+      richContent || meta?.title || '',
+      meta?.type || 'link',
+      data.tags || []
+    );
+
     const cardData: import('./types.js').CardData = {
       title: data.title || meta?.title || data.url,
       source: data.url,
-      content: data.content || meta?.videoId || meta?.description || '',
+      content: richContent,
       description: meta?.description,
       type: meta?.type || 'link',
       decks: data.decks,
+      tags: data.tags,
     };
     if (data.screenshot) {
       cardData.illustration = data.screenshot;
     } else if (meta?.image) {
       cardData.illustration = meta.image;
     }
+
     const card = await app.createCard(cardData);
-    res.json(card);
+
+    // Return card + transient analysis fields for the frontend
+    res.json({
+      ...serializeCard(card),
+      suggestedTags: analysis.suggestedTags,
+      topic: analysis.topic,
+    });
+  } catch (e) {
+    next(e);
+  }
+});
+
+const analyzeSchema = z.object({
+  text: z.string().max(100_000),
+  type: z.string().optional(),
+  existingTags: z.array(z.string()).optional(),
+});
+
+api.post('/api/analyze', (req, res, next) => {
+  try {
+    const { text, type, existingTags } = analyzeSchema.parse(req.body);
+    const result = analyzeContent(text, type || 'text', existingTags || []);
+    res.json(result);
   } catch (e) {
     next(e);
   }
@@ -384,7 +460,8 @@ const fetchUrlSchema = z.object({ url: z.string().url() });
 api.get('/api/fetch-url', async (req, res, next) => {
   try {
     const { url } = fetchUrlSchema.parse({ url: req.query.url });
-    const meta = await fetchUrlMeta(url);
+    // fetchContent=false for previews — full extraction happens on save
+    const meta = await fetchUrlMeta(url, false);
     res.json(meta);
   } catch (e) {
     next(e);

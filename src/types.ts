@@ -13,6 +13,10 @@ export interface CardData {
   contentType?: string;
   duration?: number;
   embedding?: number[];
+  /** AI-suggested tags returned transiently from /api/clip and /api/analyze — not persisted */
+  suggestedTags?: string[];
+  /** Detected topic from content analysis — not persisted */
+  topic?: string | null;
 }
 
 export interface AIProvider {
