@@ -16,3 +16,33 @@ body {
 a {
   color: var(--accent-color);
 }
+
+/* ── Global input readability fix (light + dark) ───────────────── */
+input:not([type="color"]):not([type="checkbox"]):not([type="radio"]):not([type="file"]),
+textarea,
+select {
+  @apply text-gray-900 bg-white border-gray-300 rounded;
+}
+
+.dark input:not([type="color"]):not([type="checkbox"]):not([type="radio"]):not([type="file"]),
+.dark textarea,
+.dark select {
+  @apply text-gray-100 bg-gray-700 border-gray-600;
+}
+
+input::placeholder,
+textarea::placeholder {
+  @apply text-gray-400;
+}
+
+.dark input::placeholder,
+.dark textarea::placeholder {
+  @apply text-gray-400;
+}
+
+/* Focus ring */
+input:not([type="color"]):not([type="checkbox"]):not([type="file"]):focus,
+textarea:focus,
+select:focus {
+  @apply outline-none ring-2 ring-blue-500 border-blue-500;
+}

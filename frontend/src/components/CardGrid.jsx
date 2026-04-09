@@ -3,13 +3,139 @@ import { FixedSizeGrid as Grid } from 'react-window';
 import { tagColor } from '../tagColors';
 
 const typeIcons = {
-  text: '📝',
-  image: '🖼️',
-  link: '🔗',
-  file: '📁',
-  video: '🎬',
-  audio: '🎤',
+  text:    '📝',
+  image:   '🖼️',
+  link:    '🔗',
+  file:    '📁',
+  video:   '🎬',
+  audio:   '🎤',
+  youtube: '▶',
+  tweet:   '𝕏',
+  article: '📰',
 };
+
+function YouTubeEmbed({ videoId, title }) {
+  const [playing, setPlaying] = useState(false);
+  const thumbnailUrl = `https://img.youtube.com/vi/${videoId}/hqdefault.jpg`;
+  if (playing) {
+    return (
+      <div className="mb-2 relative" style={{ paddingBottom: '56.25%', height: 0 }}>
+        <iframe
+          className="absolute inset-0 w-full h-full rounded"
+          src={`https://www.youtube.com/embed/${videoId}?autoplay=1`}
+          title={title}
+          allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
+          allowFullScreen
+          onClick={e => e.stopPropagation()}
+        />
+      </div>
+    );
+  }
+  return (
+    <div
+      className="relative mb-2 rounded overflow-hidden cursor-pointer"
+      onClick={e => { e.stopPropagation(); setPlaying(true); }}
+      title="Play video"
+    >
+      <img
+        src={thumbnailUrl}
+        alt={title}
+        className="w-full h-32 object-cover"
+        onError={e => { e.currentTarget.style.display = 'none'; }}
+      />
+      <div className="absolute inset-0 flex items-center justify-center bg-black/30 hover:bg-black/40 transition">
+        <div className="w-12 h-12 bg-red-600 rounded-full flex items-center justify-center shadow-lg">
+          <span className="text-white text-xl ml-1">▶</span>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function TweetCard({ card }) {
+  const domain = card.source
+    ? new URL(card.source).hostname.replace(/^www\./, '')
+    : 'x.com';
+  return (
+    <a
+      href={card.source}
+      target="_blank"
+      rel="noopener noreferrer"
+      className="block mb-2 border border-sky-200 dark:border-sky-700 rounded-xl p-3 bg-sky-50 dark:bg-sky-900/20 hover:bg-sky-100 dark:hover:bg-sky-900/40 transition no-underline"
+      onClick={e => e.stopPropagation()}
+    >
+      <div className="flex items-center gap-2 mb-1">
+        <span className="font-bold text-sky-600 dark:text-sky-400">𝕏</span>
+        <span className="text-xs text-gray-500 dark:text-gray-400">{domain}</span>
+      </div>
+      {card.description && (
+        <p className="text-sm line-clamp-4 text-gray-800 dark:text-gray-200 whitespace-pre-wrap">
+          {card.description}
+        </p>
+      )}
+    </a>
+  );
+}
+
+function ArticleCard({ card }) {
+  const domain = card.source
+    ? (() => { try { return new URL(card.source).hostname.replace(/^www\./, ''); } catch { return ''; } })()
+    : '';
+  return (
+    <a
+      href={card.source}
+      target="_blank"
+      rel="noopener noreferrer"
+      className="block mb-2 no-underline"
+      onClick={e => e.stopPropagation()}
+    >
+      {card.illustration && (
+        <img
+          src={card.illustration}
+          alt=""
+          className="w-full h-28 object-cover rounded-lg mb-1"
+          onError={e => { e.currentTarget.style.display = 'none'; }}
+        />
+      )}
+      {domain && (
+        <p className="text-xs text-gray-400 dark:text-gray-500 flex items-center gap-1 mb-0.5">
+          <img
+            src={`https://www.google.com/s2/favicons?domain=${domain}&sz=16`}
+            alt=""
+            className="w-3 h-3"
+            onError={e => { e.currentTarget.style.display = 'none'; }}
+          />
+          {domain}
+        </p>
+      )}
+    </a>
+  );
+}
+
+function LinkCard({ card }) {
+  const domain = card.source
+    ? (() => { try { return new URL(card.source).hostname.replace(/^www\./, ''); } catch { return card.source; } })()
+    : '';
+  return (
+    <a
+      href={card.source}
+      target="_blank"
+      rel="noopener noreferrer"
+      className="flex items-center gap-2 mb-2 text-blue-600 dark:text-blue-400 hover:underline text-xs no-underline"
+      onClick={e => e.stopPropagation()}
+    >
+      {domain && (
+        <img
+          src={`https://www.google.com/s2/favicons?domain=${domain}&sz=16`}
+          alt=""
+          className="w-3 h-3 shrink-0"
+          onError={e => { e.currentTarget.style.display = 'none'; }}
+        />
+      )}
+      <span className="truncate">{domain || card.source}</span>
+    </a>
+  );
+}
 
 export default function CardGrid({ cards, onSelect, onEdit, onDelete, cardBg, cardBorder, highlight }) {
   const containerRef = useRef(null);
@@ -91,31 +217,63 @@ export default function CardGrid({ cards, onSelect, onEdit, onDelete, cardBg, ca
               🗑️
             </button>
           </div>
-          <h3 className="text-lg font-semibold mb-2 flex items-center">
-            <span className="mr-1">{typeIcons[card.contentType || card.type || 'text'] || '📝'}</span>
-            {data.highlightText(card.title, data.highlight)}
+          <h3 className="text-base font-semibold mb-2 flex items-center gap-1 leading-tight">
+            <span>{typeIcons[card.type || 'text'] || '📝'}</span>
+            <span className="line-clamp-2">{data.highlightText(card.title, data.highlight)}</span>
           </h3>
-          {card.illustration && (
-            <img src={card.illustration} alt="illustration" className="mb-2" />
+
+          {/* YouTube */}
+          {card.type === 'youtube' && card.content && (
+            <YouTubeEmbed videoId={card.content} title={card.title} />
           )}
-          {!card.illustration && card.image && (
-            <img src={card.image} alt="illustration" className="mb-2" />
+
+          {/* Tweet */}
+          {card.type === 'tweet' && (
+            <TweetCard card={card} />
           )}
+
+          {/* Article */}
+          {card.type === 'article' && (
+            <ArticleCard card={card} />
+          )}
+
+          {/* Generic link */}
+          {card.type === 'link' && card.source && (
+            <LinkCard card={card} />
+          )}
+
+          {/* Uploaded image */}
+          {card.type === 'image' && (card.image || card.illustration) && (
+            <img src={card.image || card.illustration} alt={card.title} className="mb-2 max-h-32 rounded object-cover w-full" />
+          )}
+
+          {/* Text illustration */}
+          {card.type === 'text' && card.illustration && (
+            <img src={card.illustration} alt="illustration" className="mb-2 max-h-24 rounded" />
+          )}
+
+          {/* Uploaded video */}
           {card.type === 'video' && card.video && (
-            <video src={card.video} controls className="mb-2" />
+            <video src={card.video} controls className="mb-2 max-h-32 rounded w-full" onClick={e => e.stopPropagation()} />
           )}
+
+          {/* Audio */}
           {card.type === 'audio' && card.audio && (
             <div className="mb-2">
-              <audio src={card.audio} controls className="w-full" />
+              <audio src={card.audio} controls className="w-full" onClick={e => e.stopPropagation()} />
               {card.contentType && (
-                <p className="text-sm text-gray-600 dark:text-gray-400">Format: {card.contentType}</p>
+                <p className="text-xs text-gray-500 dark:text-gray-400">{card.contentType}</p>
               )}
               {typeof card.duration === 'number' && card.duration > 0 && (
-                <p className="text-sm text-gray-600 dark:text-gray-400">Duration: {card.duration.toFixed(1)}s</p>
+                <p className="text-xs text-gray-500 dark:text-gray-400">{card.duration.toFixed(1)}s</p>
               )}
             </div>
           )}
-          <p>{data.highlightText(card.description || '', data.highlight)}</p>
+
+          {/* Description / excerpt */}
+          <p className="text-sm text-gray-700 dark:text-gray-300 line-clamp-3">
+            {data.highlightText(card.description || card.summary || '', data.highlight)}
+          </p>
           {card.summary && (
             <p className="text-sm text-gray-600 dark:text-gray-400">{card.summary}</p>
           )}

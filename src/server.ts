@@ -8,6 +8,7 @@ import MemoryApp from './app.js';
 import { z } from 'zod';
 import { createServer } from 'http';
 import { config } from './config.js';
+import { fetchUrlMeta } from './urlFetcher.js';
 
 export const clients = new Set<express.Response>();
 
@@ -342,26 +343,49 @@ api.post('/api/video-note', async (req, res, next) => {
 });
 
 const clipSchema = z.object({
-  url: z.string(),
+  url: z.string().url(),
   title: z.string().optional(),
   content: z.string().optional(),
   screenshot: z.string().optional(),
+  decks: z.array(z.string()).optional(),
 });
 
 api.post('/api/clip', async (req, res, next) => {
   try {
     const data = clipSchema.parse(req.body);
+    let meta;
+    try {
+      meta = await fetchUrlMeta(data.url);
+    } catch {
+      meta = null;
+    }
     const cardData: import('./types.js').CardData = {
-      title: data.title || data.url,
+      title: data.title || meta?.title || data.url,
       source: data.url,
-      content: data.content || '',
-      type: 'link',
+      content: data.content || meta?.videoId || meta?.description || '',
+      description: meta?.description,
+      type: meta?.type || 'link',
+      decks: data.decks,
     };
     if (data.screenshot) {
       cardData.illustration = data.screenshot;
+    } else if (meta?.image) {
+      cardData.illustration = meta.image;
     }
     const card = await app.createCard(cardData);
     res.json(card);
+  } catch (e) {
+    next(e);
+  }
+});
+
+const fetchUrlSchema = z.object({ url: z.string().url() });
+
+api.get('/api/fetch-url', async (req, res, next) => {
+  try {
+    const { url } = fetchUrlSchema.parse({ url: req.query.url });
+    const meta = await fetchUrlMeta(url);
+    res.json(meta);
   } catch (e) {
     next(e);
   }
@@ -559,6 +583,6 @@ api.use((err: Error, _req: express.Request, res: express.Response, _next: expres
 export const server = createServer(api);
 
 if (require.main === module) {
-  const PORT = process.env.PORT || 3000;
-  server.listen(PORT, () => console.log(`Server listening on ${PORT}`));
+  const PORT = Number(process.env.PORT) || 3000;
+  server.listen(PORT, '0.0.0.0', () => console.log(`Server listening on ${PORT}`));
 }

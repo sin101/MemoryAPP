@@ -1,0 +1,10 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(npm start)",
+      "Bash(npm run frontend:dev:*)",
+      "Bash(npm install:*)",
+      "Bash(kill 35116)"
+    ]
+  }
+}

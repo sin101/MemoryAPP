@@ -570,162 +570,169 @@ export default function App() {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
+  const [showSettings, setShowSettings] = useState(false);
+
   return (
-    <div className={theme === 'dark' ? 'dark flex bg-gray-900 text-white min-h-screen' : 'flex min-h-screen'}>
-      <DeckSidebar decks={decks} current={deckFilter} onSelect={setDeckFilter} />
-      <div className="p-4 flex-1">
-        <div className="mb-4 flex items-center space-x-2">
-          <label htmlFor="search" className="sr-only">Search cards</label>
-          <div className="relative flex-1 max-w-md">
-            <input
-              id="search"
-              type="text"
-              placeholder="Search cards..."
-              value={query}
-              onChange={e => setQuery(e.target.value)}
-              className="border p-2 w-full"
-              aria-autocomplete="list"
-              aria-controls="search-suggestions"
-            />
-            {suggestions.length > 0 && (
-              <ul
-                id="search-suggestions"
-                role="listbox"
-                className="absolute z-10 bg-white dark:bg-gray-800 border mt-1 w-full max-h-40 overflow-auto"
-              >
-                {suggestions.map(s => (
-                  <li key={s}>
-                    <button
-                      type="button"
-                      className="w-full text-left px-2 py-1 hover:bg-gray-100 dark:hover:bg-gray-700"
-                      onClick={() => setQuery(s)}
-                    >
-                      {s}
-                    </button>
-                  </li>
-                ))}
-              </ul>
-            )}
-          </div>
-          <label htmlFor="tag-filter" className="sr-only">Filter by tag</label>
-          <select
-            id="tag-filter"
-            value={tagFilter}
-            onChange={e => setTagFilter(e.target.value)}
-            className="border p-2"
-          >
-            <option value="">All Tags</option>
-            {tagOptions.map(t => (
-              <option key={t} value={t}>{t}</option>
-            ))}
-          </select>
-          <label className="flex items-center text-sm">
-            <input
-              type="checkbox"
-              checked={aiEnabled}
-              onChange={e => setAiEnabled(e.target.checked)}
-              className="mr-1"
-            />
-            AI
-          </label>
-          <label className="flex items-center text-sm">
-            <input
-              type="checkbox"
-              checked={useSemantic}
-              onChange={e => setUseSemantic(e.target.checked)}
-              className="mr-1"
-              disabled={!aiEnabled}
-            />
-            Semantic
-          </label>
-          <button className="border px-2" onClick={() => setShowGraph(g => !g)}>Graph</button>
-          <button className="border px-2" onClick={handleSetKey}>Encrypt</button>
-          <button className="border px-2" onClick={exportData}>Export</button>
-          <button className="border px-2" onClick={() => importRef.current.click()}>Import</button>
+    <div className={theme === 'dark' ? 'dark flex flex-col bg-gray-900 text-gray-100 min-h-screen' : 'flex flex-col min-h-screen bg-gray-50 text-gray-900'}>
+
+      {/* ── Top bar ─────────────────────────────────────────────── */}
+      <header className="flex items-center gap-3 px-4 py-2 bg-white dark:bg-gray-800 border-b border-gray-200 dark:border-gray-700 shadow-sm sticky top-0 z-20">
+        {/* Brand */}
+        <span className="font-bold text-lg tracking-tight text-blue-600 dark:text-blue-400 shrink-0">MemoryApp</span>
+
+        {/* Search */}
+        <div className="relative flex-1 max-w-lg">
+          <span className="absolute left-2.5 top-1/2 -translate-y-1/2 text-gray-400 text-sm pointer-events-none">🔍</span>
+          <input
+            id="search"
+            type="text"
+            placeholder="Search cards…"
+            value={query}
+            onChange={e => setQuery(e.target.value)}
+            className="border pl-8 pr-3 py-1.5 w-full text-sm rounded-lg"
+            aria-autocomplete="list"
+            aria-controls="search-suggestions"
+          />
+          {suggestions.length > 0 && (
+            <ul
+              id="search-suggestions"
+              role="listbox"
+              className="absolute z-30 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-600 rounded-lg mt-1 w-full max-h-48 overflow-auto shadow-lg text-sm"
+            >
+              {suggestions.map(s => (
+                <li key={s}>
+                  <button
+                    type="button"
+                    className="w-full text-left px-3 py-1.5 hover:bg-gray-100 dark:hover:bg-gray-700 text-gray-800 dark:text-gray-100"
+                    onClick={() => setQuery(s)}
+                  >
+                    {s}
+                  </button>
+                </li>
+              ))}
+            </ul>
+          )}
+        </div>
+
+        {/* Tag filter */}
+        <select
+          id="tag-filter"
+          value={tagFilter}
+          onChange={e => setTagFilter(e.target.value)}
+          className="border py-1.5 px-2 text-sm rounded-lg shrink-0"
+        >
+          <option value="">All Tags</option>
+          {tagOptions.map(t => (
+            <option key={t} value={t}>{t}</option>
+          ))}
+        </select>
+
+        {/* View toggle */}
+        <button
+          onClick={() => setShowGraph(g => !g)}
+          className={`px-3 py-1.5 rounded-lg text-sm font-medium transition shrink-0 ${showGraph ? 'bg-blue-600 text-white' : 'border border-gray-300 dark:border-gray-600 hover:bg-gray-100 dark:hover:bg-gray-700'}`}
+        >
+          {showGraph ? 'Grid' : 'Graph'}
+        </button>
+
+        {/* Utility buttons */}
+        <div className="flex items-center gap-1.5 shrink-0 ml-auto">
+          <button
+            onClick={() => setShowSettings(s => !s)}
+            title="Settings"
+            className={`p-1.5 rounded-lg text-sm transition ${showSettings ? 'bg-gray-200 dark:bg-gray-600' : 'hover:bg-gray-100 dark:hover:bg-gray-700'}`}
+          >⚙️</button>
+          <button onClick={handleSetKey} title="Encryption" className="p-1.5 rounded-lg text-sm hover:bg-gray-100 dark:hover:bg-gray-700 transition">🔑</button>
+          <button onClick={exportData} title="Export" className="p-1.5 rounded-lg text-sm hover:bg-gray-100 dark:hover:bg-gray-700 transition">⬇️</button>
+          <button onClick={() => importRef.current.click()} title="Import" className="p-1.5 rounded-lg text-sm hover:bg-gray-100 dark:hover:bg-gray-700 transition">⬆️</button>
           <input type="file" ref={importRef} onChange={importData} className="hidden" />
         </div>
-        <ThemeSettings
-          theme={theme}
-          setTheme={setTheme}
-          tagPalette={tagPalette}
-          setTagPalette={p => {
-            setTagPalette(p);
-            set('tagPalette', p);
-            setTagPaletteCache(p);
-          }}
-          cardBg={cardBg}
-          setCardBg={c => {
-            setCardBg(c);
-            set('cardBg', c);
-          }}
-          cardBorder={cardBorder}
-          setCardBorder={c => {
-            setCardBorder(c);
-            set('cardBorder', c);
-          }}
-          accent={accent}
-          setAccent={c => {
-            setAccent(c);
-            set('accent', c);
-          }}
-          textColor={textColor}
-          setTextColor={c => {
-            setTextColor(c);
-            set('textColor', c);
-          }}
-          font={font}
-          setFont={f => {
-            setFont(f);
-            set('font', f);
-          }}
-        />
-        <QuickAdd onAdd={addCard} initial={quickAddInitial} aiEnabled={aiEnabled} />
-        {showGraph ? (
-          <GraphView
-            cards={cards}
-            links={links}
-            onLink={handleLinkCreate}
-            onLinkEdit={handleLinkEdit}
-            cardBg={cardBg}
-            cardBorder={cardBorder}
-          />
-        ) : (
-          <CardGrid
-            cards={filtered}
-            onSelect={selectCard}
-            onEdit={editCard}
-            onDelete={deleteCard}
-            cardBg={cardBg}
-            cardBorder={cardBorder}
-            highlight={query}
-          />
-        )}
-        <div className="mt-6">
-          <h2 className="text-xl font-semibold mb-2 flex items-center">
-            Suggestions
-            <label className="ml-2 text-sm">
-              <input
-                type="checkbox"
-                checked={webSuggestionsEnabled}
-                onChange={toggleWebSuggestions}
-                className="mr-1"
-              />
-              Enable web
+      </header>
+
+      {/* ── Settings panel (collapsible) ────────────────────────── */}
+      {showSettings && (
+        <div className="border-b border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 px-4 py-3">
+          <div className="flex items-center gap-6 flex-wrap text-sm mb-3">
+            <label className="flex items-center gap-1.5 cursor-pointer">
+              <input type="checkbox" checked={aiEnabled} onChange={e => setAiEnabled(e.target.checked)} className="rounded" />
+              <span>AI features</span>
             </label>
-          </h2>
-          <SuggestionsList
-            card={selected}
-            cards={cards}
-            enabled={webSuggestionsEnabled}
-            onAdd={handleSuggestionAdd}
-            onEdit={handleSuggestionEdit}
+            <label className={`flex items-center gap-1.5 ${!aiEnabled ? 'opacity-40' : 'cursor-pointer'}`}>
+              <input type="checkbox" checked={useSemantic} onChange={e => setUseSemantic(e.target.checked)} disabled={!aiEnabled} className="rounded" />
+              <span>Semantic search</span>
+            </label>
+            <label className="flex items-center gap-1.5 cursor-pointer">
+              <input type="checkbox" checked={webSuggestionsEnabled} onChange={toggleWebSuggestions} className="rounded" />
+              <span>Web suggestions</span>
+            </label>
+          </div>
+          <ThemeSettings
+            theme={theme}
+            setTheme={setTheme}
+            tagPalette={tagPalette}
+            setTagPalette={p => { setTagPalette(p); set('tagPalette', p); setTagPaletteCache(p); }}
+            cardBg={cardBg}
+            setCardBg={c => { setCardBg(c); set('cardBg', c); }}
+            cardBorder={cardBorder}
+            setCardBorder={c => { setCardBorder(c); set('cardBorder', c); }}
+            accent={accent}
+            setAccent={c => { setAccent(c); set('accent', c); }}
+            textColor={textColor}
+            setTextColor={c => { setTextColor(c); set('textColor', c); }}
+            font={font}
+            setFont={f => { setFont(f); set('font', f); }}
           />
         </div>
-        <div className="mt-6">
-          <h2 className="text-xl font-semibold mb-2">Chatbot</h2>
-          <Chatbot />
-        </div>
+      )}
+
+      {/* ── Main layout ─────────────────────────────────────────── */}
+      <div className="flex flex-1 min-h-0">
+        <DeckSidebar decks={decks} current={deckFilter} onSelect={setDeckFilter} />
+
+        <main className="flex-1 flex flex-col min-w-0 p-4 gap-4 overflow-y-auto">
+          <QuickAdd onAdd={addCard} initial={quickAddInitial} aiEnabled={aiEnabled} />
+
+          {showGraph ? (
+            <GraphView
+              cards={cards}
+              links={links}
+              onLink={handleLinkCreate}
+              onLinkEdit={handleLinkEdit}
+              cardBg={cardBg}
+              cardBorder={cardBorder}
+            />
+          ) : (
+            <CardGrid
+              cards={filtered}
+              onSelect={selectCard}
+              onEdit={editCard}
+              onDelete={deleteCard}
+              cardBg={cardBg}
+              cardBorder={cardBorder}
+              highlight={query}
+            />
+          )}
+
+          {/* Suggestions */}
+          <section className="mt-2">
+            <h2 className="text-base font-semibold mb-2 text-gray-700 dark:text-gray-300">Suggestions</h2>
+            <SuggestionsList
+              card={selected}
+              cards={cards}
+              enabled={webSuggestionsEnabled}
+              onAdd={handleSuggestionAdd}
+              onEdit={handleSuggestionEdit}
+            />
+          </section>
+
+          {/* Chatbot */}
+          <section className="mt-2">
+            <h2 className="text-base font-semibold mb-2 text-gray-700 dark:text-gray-300">Chatbot</h2>
+            <Chatbot />
+          </section>
+        </main>
       </div>
+
       {editingCard && (
         <EditCardModal
           card={editingCard}
