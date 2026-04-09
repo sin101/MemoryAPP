@@ -19,7 +19,7 @@ export default function Chatbot() {
         body: JSON.stringify({ query: text }),
       });
       const data = await res.json();
-      setMessages(prev => [...prev, { from: 'bot', text: data.reply || 'No response' }]);
+      setMessages(prev => [...prev, { from: 'bot', text: data.answer || data.reply || 'No response' }]);
     } catch {
       setMessages(prev => [...prev, { from: 'bot', text: 'Error contacting server.' }]);
       setError('Error contacting server.');

@@ -20,6 +20,7 @@ class MemoryApp extends EventEmitter {
   decks: Map<string, Deck>;
   links: Map<string, Link>;
   linksByCard: Map<string, Set<string>>;
+  linksByEndpoints: Set<string>;
   tagIndex: Map<string, Set<string>>;
   usageStats: Map<string, { count: number; lastOpened: number | null }>;
   fuse: Fuse<Card>;
@@ -35,7 +36,7 @@ class MemoryApp extends EventEmitter {
   logger?: ReturnType<typeof createLogger>;
   worker?: Worker;
   workerSeq: number;
-  workerTasks: Map<number, { resolve: (v: any) => void; reject: (e: any) => void }>;
+  workerTasks: Map<number, { resolve: (v: unknown) => void; reject: (e: unknown) => void }>;
   lshPlanes: number[][];
   lshBuckets: Map<string, Set<string>>;
   cardBuckets: Map<string, string>;
@@ -46,6 +47,7 @@ class MemoryApp extends EventEmitter {
     this.decks = new Map();
     this.links = new Map();
     this.linksByCard = new Map();
+    this.linksByEndpoints = new Set();
     this.tagIndex = new Map();
     this.usageStats = new Map();
     this.fuse = this._createFuse();
@@ -139,7 +141,20 @@ class MemoryApp extends EventEmitter {
     if (!this.db) {
       return Promise.resolve();
     }
-    return this.db.saveCard(card).catch(e => {
+    return this.db.saveCard({
+      id: card.id,
+      title: card.title,
+      content: card.content,
+      source: card.source,
+      tags: card.tags,
+      decks: card.decks,
+      type: card.type,
+      description: card.description,
+      createdAt: card.createdAt,
+      summary: card.summary,
+      illustration: card.illustration,
+      embedding: card.embedding ?? null,
+    }).catch(e => {
       this.emit('error', e);
     });
   }
@@ -171,16 +186,16 @@ class MemoryApp extends EventEmitter {
     });
   }
 
-  private _runAI(action: string, payload: any): Promise<any> {
+  private _runAI(action: string, payload: string | Card): Promise<unknown> {
     if (!this.worker) {
       // Fallback to main-thread AI
       switch (action) {
         case 'embed':
-          return this.ai.embed ? this.ai.embed(payload) : Promise.resolve([]);
+          return this.ai.embed ? this.ai.embed(payload as string) : Promise.resolve([]);
         case 'summarizeCard':
-          return this.ai.summarizeCard ? this.ai.summarizeCard(payload) : this.ai.summarize(payload.content || payload.title || '');
+          return this.ai.summarizeCard ? this.ai.summarizeCard(payload as Card) : this.ai.summarize((payload as Card).content || (payload as Card).title || '');
         case 'generateIllustration':
-          return this.ai.generateIllustration(payload);
+          return this.ai.generateIllustration(payload as string);
         default:
           return Promise.resolve(null);
       }
@@ -210,7 +225,7 @@ class MemoryApp extends EventEmitter {
     if (data.decks) {
       data.decks = this._normalizeDeckList(data.decks);
     }
-    const card = new Card(data);
+    const card = new Card(data as Omit<CardData, 'id'> & { id: string });
     this.cards.set(card.id, card);
     this.emit('cardCreated', card);
     const initialDecks = Array.from(card.decks);
@@ -382,7 +397,7 @@ class MemoryApp extends EventEmitter {
       const basis = card.content || card.source || card.title || '';
       if (basis) {
         try {
-          card.embedding = await this._runAI('embed', basis);
+          card.embedding = await this._runAI('embed', basis) as number[];
         } catch (e) {
           this.emit('error', e);
         }
@@ -645,6 +660,7 @@ class MemoryApp extends EventEmitter {
   }
 
   _initLSH(dim: number) {
+    if (this.embeddingDim > 0) return; // Already initialized, prevent race condition
     this.embeddingDim = dim;
     this.lshPlanes = [];
     for (let i = 0; i < 10; i++) {
@@ -757,7 +773,7 @@ class MemoryApp extends EventEmitter {
     return this.getThemeSuggestions(limit);
   }
 
-  removeCard(cardId) {
+  removeCard(cardId: string) {
     const card = this.cards.get(cardId);
     if (!card) {
       return false;
@@ -783,7 +799,7 @@ class MemoryApp extends EventEmitter {
     return true;
   }
 
-  removeDeck(deckName) {
+  removeDeck(deckName: string) {
     const norm = this._normalizeDeckName(deckName);
     if (!norm) {
       return false;
@@ -805,7 +821,12 @@ class MemoryApp extends EventEmitter {
     return true;
   }
 
-  _indexLink(link) {
+  private _linkKey(from: string, to: string, type: string) {
+    return `${from}\0${to}\0${type}`;
+  }
+
+  _indexLink(link: Link) {
+    this.linksByEndpoints.add(this._linkKey(link.from, link.to, link.type));
     if (!this.linksByCard.has(link.from)) {
       this.linksByCard.set(link.from, new Set<string>());
     }
@@ -816,7 +837,8 @@ class MemoryApp extends EventEmitter {
     this.linksByCard.get(link.to)!.add(link.id);
   }
 
-  _unindexLink(link) {
+  _unindexLink(link: Link) {
+    this.linksByEndpoints.delete(this._linkKey(link.from, link.to, link.type));
     const fromSet = this.linksByCard.get(link.from);
     if (fromSet) {
       fromSet.delete(link.id);
@@ -833,7 +855,7 @@ class MemoryApp extends EventEmitter {
     }
   }
 
-  createLink(fromId, toId, type = 'related', annotation = '') {
+  createLink(fromId: string, toId: string, type = 'related', annotation = '') {
     if (fromId === toId) {
       throw new Error('Cannot link card to itself');
     }
@@ -843,10 +865,8 @@ class MemoryApp extends EventEmitter {
       throw new Error('Both cards must exist to create a link');
     }
     const normType = this._normalizeTag(type ?? 'related') || 'related';
-    for (const l of this.links.values()) {
-      if (l.from === fromId && l.to === toId && l.type === normType) {
-        throw new Error('Link already exists');
-      }
+    if (this.linksByEndpoints.has(this._linkKey(fromId, toId, normType))) {
+      throw new Error('Link already exists');
     }
     const id = String(this.nextLinkId++);
     const link = new Link({ id, from: fromId, to: toId, type: normType, annotation });
@@ -857,21 +877,24 @@ class MemoryApp extends EventEmitter {
     return link;
   }
 
-  updateLink(linkId, data) {
+  updateLink(linkId: string, data: { type?: string; annotation?: string }) {
     const link = this.links.get(linkId);
     if (!link) {
       return null;
     }
     const nextType = data.type !== undefined ? (this._normalizeTag(data.type) || link.type) : link.type;
-    for (const l of this.links.values()) {
-      if (l !== link && l.from === link.from && l.to === link.to && l.type === nextType) {
-        throw new Error('Link already exists');
-      }
+    if (nextType !== link.type && this.linksByEndpoints.has(this._linkKey(link.from, link.to, nextType))) {
+      throw new Error('Link already exists');
     }
+    const oldType = link.type;
     link.update({
       type: data.type !== undefined ? nextType : undefined,
       annotation: data.annotation,
     });
+    if (oldType !== link.type) {
+      this.linksByEndpoints.delete(this._linkKey(link.from, link.to, oldType));
+      this.linksByEndpoints.add(this._linkKey(link.from, link.to, link.type));
+    }
     void this._persistLink(link);
     this.emit('linkUpdated', link);
     return link;
@@ -918,7 +941,7 @@ class MemoryApp extends EventEmitter {
     return res;
   }
 
-  getGraph(options: any = {}) {
+  getGraph(options: string | { deck?: string; tag?: string; linkType?: string } = {}) {
     let deckName: string | null = null;
     let tagFilter: string | null = null;
     let linkTypeFilter: string | null = null;
@@ -945,7 +968,7 @@ class MemoryApp extends EventEmitter {
       cardIds = new Set(this.cards.keys());
     }
 
-    const nodes: any[] = [];
+    const nodes: Array<{ id: string; title: string; tags: string[]; decks: string[] }> = [];
     for (const id of cardIds) {
       const card = this.cards.get(id);
       if (!card) {
@@ -962,9 +985,9 @@ class MemoryApp extends EventEmitter {
       });
     }
 
-    const includedIds = new Set<string>(nodes.map((n: any) => n.id));
+    const includedIds = new Set<string>(nodes.map(n => n.id));
 
-    const edges: any[] = [];
+    const edges: Array<{ id: string; from: string; to: string; type: string; annotation: string }> = [];
     const seen = new Set<string>();
     for (const id of includedIds) {
       const linkIds = this.linksByCard.get(id);
@@ -998,8 +1021,8 @@ class MemoryApp extends EventEmitter {
     return { nodes, edges };
   }
 
-  async processCard(card) {
-    const tasks: Array<[string, Promise<any>]> = [];
+  async processCard(card: Card) {
+    const tasks: Array<[string, Promise<unknown>]> = [];
     if (!card.summary) {
       tasks.push(['summary', this._runAI('summarizeCard', card)]);
     }
@@ -1014,18 +1037,18 @@ class MemoryApp extends EventEmitter {
       const [key] = tasks[i];
       const r = results[i];
       if (r.status === 'fulfilled') {
-        (card as any)[key] = r.value;
+        (card as unknown as Record<string, unknown>)[key] = r.value;
       } else {
         this.emit('error', r.reason);
       }
     }
   }
 
-  async summarize(text) {
+  async summarize(text: string) {
     return this.ai.summarize(text);
   }
 
-  async summarizeCard(card) {
+  async summarizeCard(card: Card) {
     if (this.ai.summarizeCard) {
       return this.ai.summarizeCard(card);
     }
@@ -1033,11 +1056,11 @@ class MemoryApp extends EventEmitter {
     return this.summarize(text);
   }
 
-  async generateIllustration(title) {
+  async generateIllustration(title: string) {
     return this.ai.generateIllustration(title);
   }
 
-  async chat(query) {
+  async chat(query: string) {
     if (!this.aiEnabled) {
       return 'AI disabled';
     }
@@ -1053,6 +1076,7 @@ class MemoryApp extends EventEmitter {
     this.decks = new Map();
     this.links = new Map();
     this.linksByCard = new Map();
+    this.linksByEndpoints = new Set();
     this.tagIndex = new Map();
     this.usageStats = new Map();
     this.cardBuckets = new Map();
@@ -1066,32 +1090,14 @@ class MemoryApp extends EventEmitter {
     this.workerSeq = 0;
   }
 
-  private _applySnapshot(data: any, { reset = false }: { reset?: boolean } = {}) {
+  private _applySnapshot(data: Record<string, unknown>, { reset = false }: { reset?: boolean } = {}) {
     if (!data || typeof data !== 'object') {
       throw new Error('Invalid snapshot data');
     }
-    if (reset) {
-      this._resetToEmptyState();
-    } else {
-      this.cards.clear();
-      this.decks.clear();
-      this.links.clear();
-      this.linksByCard.clear();
-      this.tagIndex.clear();
-      this.cardBuckets.clear();
-      this.lshBuckets.clear();
-      this.lshPlanes = [];
-      this.embeddingDim = 0;
-      this.nextId = 1;
-      this.nextLinkId = 1;
-      this.fuse = this._createFuse();
-      this.usageStats.clear();
-      this.workerTasks.clear();
-      this.workerSeq = 0;
-    }
+    this._resetToEmptyState();
 
-    for (const cardData of data.cards || []) {
-      const copy: any = { ...cardData };
+    for (const cardData of (data.cards as CardData[]) || []) {
+      const copy = { ...cardData } as CardData & { id: string };
       copy.tags = this._normalizeTagList(copy.tags);
       copy.decks = this._normalizeDeckList(copy.decks);
       const card = new Card(copy);
@@ -1106,7 +1112,7 @@ class MemoryApp extends EventEmitter {
       }
     }
 
-    for (const deckData of data.decks || []) {
+    for (const deckData of (data.decks as Array<{ name: string; cards?: string[] }>) || []) {
       if (!deckData || !deckData.name) {
         continue;
       }
@@ -1141,9 +1147,7 @@ class MemoryApp extends EventEmitter {
       }
     }
 
-    this.links.clear();
-    this.linksByCard.clear();
-    for (const linkData of data.links || []) {
+    for (const linkData of (data.links as Array<{ id: string; from: string; to: string; type?: string; annotation?: string }>) || []) {
       if (!linkData) {
         continue;
       }
@@ -1171,7 +1175,7 @@ class MemoryApp extends EventEmitter {
     this._updateSmartDecks();
   }
 
-  async loadSnapshot(data: any) {
+  async loadSnapshot(data: Record<string, unknown>) {
     this._applySnapshot(data, { reset: true });
     if (this.db) {
       const cards = Array.from(this.cards.values()).map(card => ({
@@ -1229,11 +1233,11 @@ class MemoryApp extends EventEmitter {
     };
   }
 
-  async saveToFile(path) {
+  async saveToFile(path: string) {
     await fs.promises.writeFile(path, JSON.stringify(this.toJSON(), null, 2));
   }
 
-  async saveEncryptedToFile(path, password) {
+  async saveEncryptedToFile(path: string, password: string) {
     const iv = crypto.randomBytes(12);
     const key = crypto.createHash('sha256').update(password).digest();
     const cipher = crypto.createCipheriv('aes-256-gcm', key, iv);
@@ -1243,7 +1247,7 @@ class MemoryApp extends EventEmitter {
     await fs.promises.writeFile(path, Buffer.concat([iv, tag, encrypted]));
   }
 
-  async saveMedia(input, filename) {
+  async saveMedia(input: string | Buffer, filename: string) {
     const dir = 'storage';
     await fs.promises.mkdir(dir, { recursive: true });
     const filePath = path.join(dir, filename);
@@ -1269,7 +1273,7 @@ class MemoryApp extends EventEmitter {
     return filePath;
   }
 
-  async loadMedia(filePath) {
+  async loadMedia(filePath: string) {
     let data = await fs.promises.readFile(filePath);
     if (this.encryptionKey) {
       const iv = data.subarray(0, 12);
@@ -1297,12 +1301,12 @@ class MemoryApp extends EventEmitter {
     return await zip.generateAsync({ type: 'nodebuffer' });
   }
 
-  async exportZip(zipPath) {
+  async exportZip(zipPath: string) {
     const buffer = await this.exportZipBuffer();
     await fs.promises.writeFile(zipPath, buffer);
   }
 
-  static async importZipBuffer(buffer) {
+  static async importZipBuffer(buffer: Buffer) {
     const zip = await JSZip.loadAsync(buffer);
     const json = JSON.parse(await zip.file('data.json')!.async('string'));
     const app = MemoryApp.fromJSON(json);
@@ -1319,24 +1323,24 @@ class MemoryApp extends EventEmitter {
     return app;
   }
 
-  static async importZip(zipPath) {
+  static async importZip(zipPath: string) {
     const buffer = await fs.promises.readFile(zipPath);
     return MemoryApp.importZipBuffer(buffer);
   }
 
-  static fromJSON(data) {
+  static fromJSON(data: Record<string, unknown>) {
     const app = new MemoryApp();
     app.aiEnabled = false;
     app._applySnapshot(data, { reset: true });
     return app;
   }
 
-  static async loadFromFile(path) {
+  static async loadFromFile(path: string) {
     const data = JSON.parse(await fs.promises.readFile(path, 'utf8'));
     return MemoryApp.fromJSON(data);
   }
 
-  static async loadEncryptedFromFile(path, password) {
+  static async loadEncryptedFromFile(path: string, password: string) {
     const data = await fs.promises.readFile(path);
     const iv = data.slice(0, 12);
     const tag = data.slice(12, 28);
@@ -1352,9 +1356,13 @@ class MemoryApp extends EventEmitter {
     if (!this.db) return;
     const stored = await this.db.loadCards();
     for (const data of stored) {
-      data.tags = this._normalizeTagList(data.tags as Iterable<string>);
-      data.decks = this._normalizeDeckList(data.decks as Iterable<string>);
-      const card = new Card(data);
+      const cardData = {
+        ...data,
+        tags: this._normalizeTagList(data.tags),
+        decks: this._normalizeDeckList(data.decks),
+        embedding: data.embedding ?? undefined,
+      };
+      const card = new Card(cardData as Omit<CardData, 'id'> & { id: string });
       this.cards.set(card.id, card);
       this._addToTagIndex(card);
       if (card.embedding) {

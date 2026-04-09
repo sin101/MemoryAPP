@@ -3,6 +3,7 @@ import cors from 'cors';
 import helmet from 'helmet';
 import rateLimit from 'express-rate-limit';
 import { promises as fs } from 'fs';
+import crypto from 'crypto';
 import MemoryApp from './app.js';
 import { z } from 'zod';
 import { createServer } from 'http';
@@ -80,7 +81,11 @@ app.on('linkRemoved', link => broadcast('linkRemoved', link));
 api.use((req, res, next) => {
   if (!API_TOKEN) return next();
   const auth = req.headers['authorization'] || '';
-  if (auth === `Bearer ${API_TOKEN}`) return next();
+  const expected = `Bearer ${API_TOKEN}`;
+  if (auth.length === expected.length &&
+      crypto.timingSafeEqual(Buffer.from(auth), Buffer.from(expected))) {
+    return next();
+  }
   res.status(401).send('Unauthorized');
 });
 
@@ -127,7 +132,7 @@ const limitQuerySchema = z.object({ limit: z.string().optional() });
 api.post('/api/cards', async (req, res, next) => {
   try {
     const data = cardSchema.parse(req.body);
-    const card = await app.createCard(data as any);
+    const card = await app.createCard(data);
     res.json(card);
   } catch (e) {
     next(e);
@@ -220,8 +225,10 @@ api.post('/api/illustrate', async (req, res, next) => {
   }
 });
 
+const MAX_UPLOAD_BYTES = 50 * 1024 * 1024; // 50 MB
+
 const audioSchema = z.object({
-  audio: z.string(),
+  audio: z.string().max(MAX_UPLOAD_BYTES),
   title: z.string().optional(),
   contentType: z.string().optional(),
   duration: z.number().optional(),
@@ -248,7 +255,7 @@ api.post('/api/audio-note', async (req, res, next) => {
 });
 
 const videoSchema = z.object({
-  video: z.string(),
+  video: z.string().max(MAX_UPLOAD_BYTES),
   title: z.string().optional(),
 });
 
@@ -278,7 +285,7 @@ const clipSchema = z.object({
 api.post('/api/clip', async (req, res, next) => {
   try {
     const data = clipSchema.parse(req.body);
-    const cardData: any = {
+    const cardData: import('./types.js').CardData = {
       title: data.title || data.url,
       source: data.url,
       content: data.content || '',
@@ -457,7 +464,7 @@ api.post('/api/import/json', async (req, res, next) => {
   }
 });
 
-api.use((err, req, res, _next) => {
+api.use((err: Error, _req: express.Request, res: express.Response, _next: express.NextFunction) => {
   res.status(400).send(err.message || 'Error');
 });
 

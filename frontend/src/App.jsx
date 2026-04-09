@@ -457,7 +457,7 @@ export default function App() {
   }, [usage]);
 
   const exportData = () => {
-    fetch('/api/export')
+    fetch('/api/export/zip')
       .then(r => r.blob())
       .then(blob => {
         const url = URL.createObjectURL(blob);
@@ -467,14 +467,18 @@ export default function App() {
         a.click();
         URL.revokeObjectURL(url);
       })
-      .catch(err => console.error(err));
+      .catch(err => console.error('Export failed:', err));
   };
 
   const importData = e => {
     const file = e.target.files[0];
     if (!file) return;
     file.arrayBuffer().then(buf => {
-      fetch('/api/import', { method: 'POST', body: buf })
+      fetch('/api/import/json', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: buf,
+      })
         .then(() => fetch('/api/cards'))
         .then(r => r.json())
         .then(data => {
@@ -484,38 +488,52 @@ export default function App() {
           setLinks(data.links || []);
           saveLinks(data.links || []);
         })
-        .catch(err => console.error(err));
+        .catch(err => console.error('Import failed:', err));
     });
     importRef.current.value = '';
   };
 
   useEffect(() => {
-    const es = new EventSource('/api/events');
-    es.addEventListener('cardCreated', e => {
-      const card = JSON.parse(e.data);
-      setCards(prev => {
-        const next = [...prev, card];
-        saveCards(next);
-        return next;
+    let es;
+    let retryTimeout;
+
+    function connect() {
+      es = new EventSource('/api/events');
+      es.addEventListener('cardCreated', e => {
+        const card = JSON.parse(e.data);
+        setCards(prev => {
+          const next = [...prev, card];
+          saveCards(next);
+          return next;
+        });
       });
-    });
-    es.addEventListener('cardUpdated', e => {
-      const card = JSON.parse(e.data);
-      setCards(prev => {
-        const next = prev.map(c => (c.id === card.id ? card : c));
-        saveCards(next);
-        return next;
+      es.addEventListener('cardUpdated', e => {
+        const card = JSON.parse(e.data);
+        setCards(prev => {
+          const next = prev.map(c => (c.id === card.id ? card : c));
+          saveCards(next);
+          return next;
+        });
       });
-    });
-    es.addEventListener('cardRemoved', e => {
-      const { id } = JSON.parse(e.data);
-      setCards(prev => {
-        const next = prev.filter(c => c.id !== id);
-        saveCards(next);
-        return next;
+      es.addEventListener('cardRemoved', e => {
+        const { id } = JSON.parse(e.data);
+        setCards(prev => {
+          const next = prev.filter(c => c.id !== id);
+          saveCards(next);
+          return next;
+        });
       });
-    });
-    return () => es.close();
+      es.onerror = () => {
+        es.close();
+        retryTimeout = setTimeout(connect, 5000);
+      };
+    }
+
+    connect();
+    return () => {
+      clearTimeout(retryTimeout);
+      es?.close();
+    };
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 

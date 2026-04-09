@@ -7,12 +7,12 @@ class Deck {
     this.cards = new Set();
   }
 
-  addCard(card: any) {
+  addCard(card: import('./card.js').default) {
     this.cards.add(card.id);
     card.addDeck(this.name);
   }
 
-  removeCard(card: any) {
+  removeCard(card: import('./card.js').default) {
     this.cards.delete(card.id);
     card.decks.delete(this.name);
   }

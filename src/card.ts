@@ -17,7 +17,7 @@ class Card {
 
   constructor({
     id,
-    title,
+    title = '',
     content,
     source = '',
     tags = [],
@@ -30,7 +30,7 @@ class Card {
     contentType = '',
     duration = 0,
     embedding,
-  }: any) {
+  }: Omit<import('./types.js').CardData, 'id'> & { id: string }) {
     this.id = id;
     this.title = title;
     this.content = content;
@@ -60,7 +60,7 @@ class Card {
     this.tags.delete(tag.toLowerCase());
   }
 
-  update({ title, content, source, tags, description, type, summary, illustration, contentType, duration, embedding }: any) {
+  update({ title, content, source, tags, description, type, summary, illustration, contentType, duration, embedding }: Partial<import('./types.js').CardData>) {
     if (title !== undefined) {
       this.title = title;
     }

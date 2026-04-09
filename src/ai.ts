@@ -108,13 +108,13 @@ export class SimpleAI implements AIProvider {
 }
 
 export class HuggingFaceAI implements AIProvider {
-  static _cachedModels: any = null;
+  static _cachedModels: Record<string, string> | null = null;
   apiKey?: string;
   models: Record<string, string> = {};
   ready: Promise<void>;
   timeout: number;
 
-  constructor(options: any = {}) {
+  constructor(options: { apiKey?: string; models?: Record<string, string>; timeout?: number; autoSelect?: boolean } = {}) {
     this.apiKey = options.apiKey || process.env.HUGGINGFACE_API_KEY;
     this.models = Object.assign({}, HF_MODELS, options.models);
     this.timeout = options.timeout ?? 5000;
@@ -229,11 +229,11 @@ export class HuggingFaceAI implements AIProvider {
         .map((c: any) => `${c.title}: ${c.content}`)
         .join('\n');
       const prompt = `You are a helpful assistant for a personal memory app.\n${context}\nUser: ${query}\nAssistant:`;
-      const data: any = await this._json(this.models.chat, {
+      const data = await this._json(this.models.chat, {
         inputs: prompt,
         parameters: { max_new_tokens: 60 }
       });
-      const text = (data as any).generated_text || data[0]?.generated_text;
+      const text = data.generated_text || data[0]?.generated_text;
       if (text) {
         return text.replace(prompt, '').trim();
       }
@@ -249,7 +249,7 @@ export class HuggingFaceAI implements AIProvider {
     return `Found card ${card.title}: ${summary}`;
   }
 
-  private async _fetch(url: string, options: any) {
+  private async _fetch(url: string, options: RequestInit) {
     try {
       return await fetch(url, { ...options, signal: AbortSignal.timeout(this.timeout) });
     } catch (e: any) {
@@ -299,7 +299,7 @@ export class HuggingFaceAI implements AIProvider {
         Authorization: `Bearer ${this.apiKey}`,
         'Content-Type': contentType
       },
-      body: buffer
+      body: buffer as unknown as BodyInit
     });
     if (!res.ok) {
       throw new Error(`HF request failed: ${res.status}`);
@@ -314,7 +314,7 @@ export class TransformersAI implements AIProvider {
   embedder: any;
   fallback: any;
 
-  constructor(options: { modelsDir?: string; fallback?: AIProvider } = {}) {
+  constructor(options: { modelsDir?: string; fallback?: AIProvider; apiKey?: string } = {}) {
     this.modelsDir = options.modelsDir || LOCAL_MODEL_DIR;
     this.summarizer = null;
     this.embedder = null;

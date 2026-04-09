@@ -169,8 +169,8 @@ class MemoryDB {
     }
   }
 
-  encrypt(text: any) {
-    if (!this.key || text === undefined || text === null) return text;
+  encrypt(text: string | undefined | null): string {
+    if (!this.key || text === undefined || text === null) return text as string;
     const iv = crypto.randomBytes(12);
     const key = crypto.createHash('sha256').update(this.key).digest();
     const cipher = crypto.createCipheriv('aes-256-gcm', key, iv);
@@ -181,10 +181,13 @@ class MemoryDB {
     );
   }
 
-  decrypt(text: any) {
-    if (!this.key || text === undefined || text === null) return text;
+  decrypt(text: string | undefined | null): string {
+    if (!this.key || text === undefined || text === null) return text as string;
+    const str = String(text);
+    const parts = str.split(':');
+    if (parts.length !== 3) return str; // Not encrypted data, return as-is
     try {
-      const [ivHex, tagHex, dataHex] = String(text).split(':');
+      const [ivHex, tagHex, dataHex] = parts;
       const iv = Buffer.from(ivHex, 'hex');
       const tag = Buffer.from(tagHex, 'hex');
       const encrypted = Buffer.from(dataHex, 'hex');
@@ -192,7 +195,8 @@ class MemoryDB {
       const decipher = crypto.createDecipheriv('aes-256-gcm', key, iv);
       decipher.setAuthTag(tag);
       return Buffer.concat([decipher.update(encrypted), decipher.final()]).toString('utf8');
-    } catch {
+    } catch (e) {
+      console.error('Decryption failed — data may be corrupted or key may be wrong');
       return '';
     }
   }

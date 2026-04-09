@@ -2,7 +2,8 @@ import { XMLParser } from 'fast-xml-parser';
 
 const FETCH_TIMEOUT_MS = 1000;
 const CACHE_TTL_MS = 60 * 60 * 1000;
-const cache = new Map<string, { ts: number; value: any }>();
+const MAX_CACHE_SIZE = 500;
+const cache = new Map<string, { ts: number; value: unknown }>();
 
 async function timedFetch(url: string, options: any = {}, timeout = FETCH_TIMEOUT_MS) {
   return fetch(url, { ...options, signal: AbortSignal.timeout(timeout) });
@@ -12,7 +13,22 @@ function getKey(tag: string, source: string) {
   return `${source}:${tag}`;
 }
 
-async function fetchWithCache(tag: string, source: string, fn: (tag: string) => Promise<any>) {
+function evictStaleEntries() {
+  if (cache.size <= MAX_CACHE_SIZE) return;
+  const now = Date.now();
+  // First pass: remove expired entries
+  for (const [key, entry] of cache) {
+    if (now - entry.ts >= CACHE_TTL_MS) cache.delete(key);
+  }
+  // Second pass: if still too large, remove oldest entries
+  if (cache.size > MAX_CACHE_SIZE) {
+    const entries = Array.from(cache.entries()).sort((a, b) => a[1].ts - b[1].ts);
+    const toRemove = entries.slice(0, cache.size - MAX_CACHE_SIZE);
+    for (const [key] of toRemove) cache.delete(key);
+  }
+}
+
+async function fetchWithCache(tag: string, source: string, fn: (tag: string) => Promise<unknown>) {
   const key = getKey(tag, source);
   const cached = cache.get(key);
   const now = Date.now();
@@ -26,11 +42,14 @@ async function fetchWithCache(tag: string, source: string, fn: (tag: string) => 
           cache.set(key, { ts: Date.now(), value: res });
         }
       })
-      .catch(() => {});
+      .catch(() => {}); // Background refresh — errors are non-critical
     return cached.value;
   }
   const res = await fn(tag);
-  if (res) cache.set(key, { ts: now, value: res });
+  if (res) {
+    evictStaleEntries();
+    cache.set(key, { ts: now, value: res });
+  }
   return res;
 }
 
@@ -167,7 +186,7 @@ async function fetchFromArXiv(tag: string) {
 }
 
 export async function fetchSuggestion(tag: string, type = 'text') {
-  const strategies: Array<(t: string) => Promise<any>> = [];
+  const strategies: Array<(t: string) => Promise<unknown>> = [];
   if (type === 'video') {
     strategies.push(t => fetchWithCache(t, 'youtube', fetchFromYouTube));
   } else if (type === 'academic') {
