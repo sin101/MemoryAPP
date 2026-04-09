@@ -6,6 +6,7 @@ import QuickAdd from './components/QuickAdd';
 import DeckSidebar from './components/DeckSidebar';
 import GraphView from './components/GraphView';
 import Chatbot from './components/Chatbot';
+import EditCardModal from './components/EditCardModal';
 import ThemeSettings from './components/ThemeSettings';
 import CryptoJS from 'crypto-js';
 import { get, set } from 'idb-keyval';
@@ -82,6 +83,8 @@ export default function App() {
   const [accent, setAccent] = useState('#3b82f6');
   const [textColor, setTextColor] = useState('#000000');
   const [font, setFont] = useState('sans-serif');
+  const [editingCard, setEditingCard] = useState(null);
+  const [online, setOnline] = useState(navigator.onLine);
   const importRef = useRef();
   const loadCards = async () => {
     const db = await dbPromise;
@@ -340,35 +343,25 @@ export default function App() {
   };
 
   const editCard = card => {
-    const title = prompt('Edit title', card.title);
-    if (title === null) return;
-    const description = prompt('Edit description', card.description || '');
-    if (description === null) return;
-    const tagsStr = prompt(
-      'Edit tags (comma separated)',
-      (card.tags || []).join(',')
-    );
-    if (tagsStr === null) return;
-    const decksStr = prompt(
-      'Edit decks (comma separated)',
-      (card.decks || []).join(',')
-    );
-    if (decksStr === null) return;
-    const tags = tagsStr
-      .split(',')
-      .map(t => t.trim())
-      .filter(Boolean);
-    const decks = decksStr
-      .split(',')
-      .map(d => d.trim())
-      .filter(Boolean);
+    setEditingCard(card);
+  };
+
+  const handleEditSave = async (updated) => {
+    setEditingCard(null);
     setCards(prev => {
-      const next = prev.map(c =>
-        c.id === card.id ? { ...c, title, description, tags, decks } : c
-      );
+      const next = prev.map(c => (c.id === updated.id ? updated : c));
       saveCards(next);
       return next;
     });
+    try {
+      await fetch(`/api/cards/${updated.id}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(updated),
+      });
+    } catch {
+      // saved locally, will sync when back online
+    }
   };
 
   const deleteCard = id => {
@@ -492,6 +485,46 @@ export default function App() {
     });
     importRef.current.value = '';
   };
+
+  useEffect(() => {
+    const goOnline = () => setOnline(true);
+    const goOffline = () => setOnline(false);
+    window.addEventListener('online', goOnline);
+    window.addEventListener('offline', goOffline);
+    return () => {
+      window.removeEventListener('online', goOnline);
+      window.removeEventListener('offline', goOffline);
+    };
+  }, []);
+
+  useEffect(() => {
+    if (!online) return;
+    // When coming back online, sync local cards to server
+    (async () => {
+      try {
+        const syncRes = await fetch('/api/sync/status');
+        if (!syncRes.ok) return;
+        const { lastModified: serverTime } = await syncRes.json();
+        const localTime = await get('lastSyncTime');
+        if (localTime && serverTime && serverTime > localTime) {
+          // Server has newer data — pull it
+          const res = await fetch('/api/cards');
+          if (res.ok) {
+            const data = await res.json();
+            const cs = (data.cards || []).map(c => ({ ...c, decks: c.decks || [] }));
+            setCards(cs);
+            await saveCards(cs);
+            setLinks(data.links || []);
+            await saveLinks(data.links || []);
+          }
+        }
+        await set('lastSyncTime', Date.now());
+      } catch {
+        // ignore sync errors
+      }
+    })();
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [online]);
 
   useEffect(() => {
     let es;
@@ -693,6 +726,13 @@ export default function App() {
           <Chatbot />
         </div>
       </div>
+      {editingCard && (
+        <EditCardModal
+          card={editingCard}
+          onSave={handleEditSave}
+          onClose={() => setEditingCard(null)}
+        />
+      )}
     </div>
   );
 }

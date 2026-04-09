@@ -41,6 +41,9 @@ class MemoryApp extends EventEmitter {
   lshBuckets: Map<string, Set<string>>;
   cardBuckets: Map<string, string>;
   embeddingDim: number;
+  private _smartDeckTimer: ReturnType<typeof setTimeout> | null = null;
+  private _jsonCache: ReturnType<MemoryApp['_buildJSON']> | null = null;
+  lastModified: number = Date.now();
   constructor(options: AppOptions = {}) {
     super();
     this.cards = new Map();
@@ -231,11 +234,11 @@ class MemoryApp extends EventEmitter {
     const initialDecks = Array.from(card.decks);
     await this._processAndPersistCard(card);
     this._updateTagIndex(card);
-    this._rebuildSearchIndex();
+    this._fuseAddCard(card);
     for (const deckName of initialDecks) {
       this.addCardToDeck(card.id, deckName);
     }
-    this._updateSmartDecks();
+    this._debouncedSmartDecks();
     return card;
   }
 
@@ -386,8 +389,8 @@ class MemoryApp extends EventEmitter {
     this.emit('cardUpdated', card);
     await this._processAndPersistCard(card);
     this._updateTagIndex(card, oldTags);
-    this._rebuildSearchIndex();
-    this._updateSmartDecks();
+    this._fuseUpdateCard(card);
+    this._debouncedSmartDecks();
     return card;
   }
 
@@ -490,7 +493,7 @@ class MemoryApp extends EventEmitter {
     stat.count++;
     stat.lastOpened = Date.now();
     this.usageStats.set(cardId, stat);
-    this._updateSmartDecks();
+    this._debouncedSmartDecks();
   }
 
   async _setDeckCards(deckName: string, ids: Set<string>) {
@@ -597,6 +600,26 @@ class MemoryApp extends EventEmitter {
     this._updateTagDecks();
   }
 
+  /** Debounce smart deck rebuilds — coalesce rapid mutations into one update */
+  private _debouncedSmartDecks() {
+    this.lastModified = Date.now();
+    this._jsonCache = null;
+    if (this._smartDeckTimer) clearTimeout(this._smartDeckTimer);
+    this._smartDeckTimer = setTimeout(() => {
+      this._smartDeckTimer = null;
+      this._updateSmartDecks();
+    }, 500);
+  }
+
+  /** Force-flush pending smart deck update (for tests / shutdown) */
+  flushSmartDecks() {
+    if (this._smartDeckTimer) {
+      clearTimeout(this._smartDeckTimer);
+      this._smartDeckTimer = null;
+      this._updateSmartDecks();
+    }
+  }
+
   _addToTagIndex(card: Card) {
     for (const tag of card.tags) {
       if (!this.tagIndex.has(tag)) {
@@ -657,6 +680,24 @@ class MemoryApp extends EventEmitter {
         }
       }
     }
+    this._jsonCache = null;
+  }
+
+  /** Incremental Fuse update — avoids full collection rebuild */
+  private _fuseAddCard(card: Card) {
+    this.fuse.add(card);
+    this._jsonCache = null;
+  }
+
+  private _fuseRemoveCard(card: Card) {
+    this.fuse.remove(doc => doc.id === card.id);
+    this._jsonCache = null;
+  }
+
+  private _fuseUpdateCard(card: Card) {
+    this.fuse.remove(doc => doc.id === card.id);
+    this.fuse.add(card);
+    this._jsonCache = null;
   }
 
   _initLSH(dim: number) {
@@ -792,10 +833,10 @@ class MemoryApp extends EventEmitter {
     this.cards.delete(cardId);
     this._removeFromLSH(cardId);
     this._removeFromTagIndex(card);
-    this._rebuildSearchIndex();
+    this._fuseRemoveCard(card);
     this.emit('cardRemoved', card);
     void this._deleteCardRecord(cardId);
-    this._updateSmartDecks();
+    this._debouncedSmartDecks();
     return true;
   }
 
@@ -1068,7 +1109,11 @@ class MemoryApp extends EventEmitter {
   }
 
   private _createFuse() {
-    return new Fuse<Card>([], { keys: ['title', 'content', 'description', 'tags'] });
+    return new Fuse<Card>([], {
+      keys: ['title', 'content', 'description', 'tags'],
+      includeMatches: true,
+      includeScore: true,
+    });
   }
 
   private _resetToEmptyState() {
@@ -1203,7 +1248,7 @@ class MemoryApp extends EventEmitter {
     }
   }
 
-  toJSON() {
+  private _buildJSON() {
     return {
       cards: Array.from(this.cards.values()).map(card => ({
         id: card.id,
@@ -1216,9 +1261,9 @@ class MemoryApp extends EventEmitter {
         description: card.description,
         createdAt: card.createdAt,
         summary: card.summary,
-      illustration: card.illustration,
-      embedding: card.embedding,
-    })),
+        illustration: card.illustration,
+        embedding: card.embedding,
+      })),
       decks: Array.from(this.decks.values()).map(deck => ({
         name: deck.name,
         cards: Array.from(deck.cards),
@@ -1230,6 +1275,75 @@ class MemoryApp extends EventEmitter {
         type: link.type,
         annotation: link.annotation,
       })),
+      lastModified: this.lastModified,
+    };
+  }
+
+  /** Cached serialization — invalidated automatically on mutations */
+  toJSON() {
+    if (!this._jsonCache) {
+      this._jsonCache = this._buildJSON();
+    }
+    return this._jsonCache;
+  }
+
+  /** Batch-create cards — defers index rebuilds to the end */
+  async createCards(items: CardData[]) {
+    const created: Card[] = [];
+    for (const data of items) {
+      if (!data.id) {
+        data.id = String(this.nextId++);
+      } else {
+        const num = Number(data.id);
+        if (!Number.isNaN(num) && num >= this.nextId) {
+          this.nextId = num + 1;
+        }
+      }
+      if (this.cards.has(data.id)) continue;
+      if (data.tags) data.tags = this._normalizeTagList(data.tags);
+      if (data.decks) data.decks = this._normalizeDeckList(data.decks);
+      const card = new Card(data as Omit<CardData, 'id'> & { id: string });
+      this.cards.set(card.id, card);
+      this._addToTagIndex(card);
+      created.push(card);
+    }
+    // Process all cards (embedding, summarize, persist)
+    await Promise.all(created.map(card => this._processAndPersistCard(card)));
+    // Add to decks
+    for (const card of created) {
+      for (const deckName of Array.from(card.decks)) {
+        this.addCardToDeck(card.id, deckName);
+      }
+      this.emit('cardCreated', card);
+    }
+    // Rebuild once at the end
+    this._rebuildSearchIndex();
+    this._updateSmartDecks();
+    return created;
+  }
+
+  /** Text search with match context highlighting */
+  searchByTextWithHighlights(query: string, limit = 20) {
+    const results = this.fuse.search(query, { limit });
+    return results.map(r => ({
+      card: r.item,
+      score: r.score ?? 1,
+      matches: (r.matches || []).map(m => ({
+        key: m.key,
+        value: m.value,
+        indices: m.indices,
+      })),
+    }));
+  }
+
+  /** Paginated card listing */
+  getCards(offset = 0, limit = 50) {
+    const all = Array.from(this.cards.values());
+    return {
+      cards: all.slice(offset, offset + limit).map(c => c.toJSON()),
+      total: all.length,
+      offset,
+      limit,
     };
   }
 

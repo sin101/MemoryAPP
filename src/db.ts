@@ -105,6 +105,16 @@ class MemoryDB {
     await this.db.run('DELETE FROM card_search WHERE id = ?', id);
   }
 
+  /** Full-text search via FTS5 — returns matching card IDs with rank */
+  async searchFTS(query: string, limit = 20): Promise<Array<{ id: string; rank: number }>> {
+    await this.ready;
+    const rows = await this.db.all<{ id: string; rank: number }[]>(
+      `SELECT id, rank FROM card_search WHERE card_search MATCH ? ORDER BY rank LIMIT ?`,
+      [query, limit]
+    );
+    return rows;
+  }
+
   async loadCards(): Promise<CardRecord[]> {
     await this.ready;
     const rows = await this.db.all<any[]>('SELECT * FROM cards');

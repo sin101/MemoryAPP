@@ -128,6 +128,12 @@ const deckParams = z.object({ name: z.string() });
 const deckCardBody = z.object({ cardId: z.string() });
 const deckCardParams = z.object({ name: z.string(), cardId: z.string() });
 const limitQuerySchema = z.object({ limit: z.string().optional() });
+const paginationSchema = z.object({
+  offset: z.string().optional(),
+  limit: z.string().optional(),
+});
+const textSearchSchema = z.object({ query: z.string(), limit: z.number().optional() });
+const batchCardsSchema = z.object({ cards: z.array(cardSchema) });
 
 api.post('/api/cards', async (req, res, next) => {
   try {
@@ -139,8 +145,68 @@ api.post('/api/cards', async (req, res, next) => {
   }
 });
 
-api.get('/api/cards', (_req, res) => {
-  res.json(app.toJSON());
+api.post('/api/cards/batch', async (req, res, next) => {
+  try {
+    const { cards } = batchCardsSchema.parse(req.body);
+    const created = await app.createCards(cards);
+    res.json(created);
+  } catch (e) {
+    next(e);
+  }
+});
+
+api.get('/api/cards', (req, res) => {
+  const { offset, limit } = paginationSchema.parse(req.query);
+  const o = offset ? parseInt(offset, 10) : undefined;
+  const l = limit ? parseInt(limit, 10) : undefined;
+  if (o !== undefined || l !== undefined) {
+    res.json(app.getCards(o, l));
+  } else {
+    res.json(app.toJSON());
+  }
+});
+
+api.get('/api/cards/:id', (req, res, next) => {
+  try {
+    const { id } = usageParams.parse(req.params);
+    const card = app.cards.get(id);
+    if (!card) {
+      res.status(404).send('Not found');
+      return;
+    }
+    res.json(card.toJSON());
+  } catch (e) {
+    next(e);
+  }
+});
+
+api.put('/api/cards/:id', async (req, res, next) => {
+  try {
+    const { id } = usageParams.parse(req.params);
+    const data = cardSchema.parse(req.body);
+    const card = await app.updateCard(id, data);
+    if (!card) {
+      res.status(404).send('Not found');
+      return;
+    }
+    res.json(card.toJSON());
+  } catch (e) {
+    next(e);
+  }
+});
+
+api.delete('/api/cards/:id', (req, res, next) => {
+  try {
+    const { id } = usageParams.parse(req.params);
+    const removed = app.removeCard(id);
+    if (!removed) {
+      res.status(404).send('Not found');
+      return;
+    }
+    res.status(204).send();
+  } catch (e) {
+    next(e);
+  }
 });
 
 api.post('/api/decks', (req, res, next) => {
@@ -313,6 +379,20 @@ api.get('/api/graph', (req, res, next) => {
   }
 });
 
+api.post('/api/search/text', (req, res, next) => {
+  try {
+    const { query, limit } = textSearchSchema.parse(req.body);
+    const results = app.searchByTextWithHighlights(query, limit);
+    res.json(results.map(r => ({
+      card: r.card.toJSON(),
+      score: r.score,
+      matches: r.matches,
+    })));
+  } catch (e) {
+    next(e);
+  }
+});
+
 api.post('/api/search/semantic', async (req, res, next) => {
   try {
     const { query, limit } = semanticSchema.parse(req.body);
@@ -438,6 +518,14 @@ api.post('/api/cards/:id/usage', (req, res, next) => {
   } catch (e) {
     next(e);
   }
+});
+
+api.get('/api/sync/status', (_req, res) => {
+  res.json({
+    lastModified: app.lastModified,
+    cardCount: app.cards.size,
+    linkCount: app.links.size,
+  });
 });
 
 api.get('/api/export/json', (_req, res) => {
