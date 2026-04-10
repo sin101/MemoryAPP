@@ -105,11 +105,13 @@ class MemoryApp extends EventEmitter {
   }
 
   private _normalizeDeckName(name: string) {
-    return (name ?? '').trim().toLowerCase();
+    const n = (name ?? '').trim().toLowerCase().slice(0, 64);
+    return n.length > 0 ? n : '';
   }
 
   private _normalizeTag(tag: string) {
-    return (tag ?? '').trim().toLowerCase();
+    const t = (tag ?? '').trim().toLowerCase().slice(0, 64);
+    return t.length > 0 ? t : '';
   }
 
   private _normalizeTagList(tags?: Iterable<string>) {
@@ -532,72 +534,42 @@ class MemoryApp extends EventEmitter {
     }
   }
 
-  _updateRecentDeck() {
-    const cutoff = Date.now() - 7 * 24 * 60 * 60 * 1000;
-    const ids = new Set<string>();
-    for (const card of this.cards.values()) {
-      if (new Date(card.createdAt).getTime() >= cutoff) {
-        ids.add(card.id);
-      }
-    }
-    this._setDeckCards('recent', ids);
-  }
+  _updateSmartDecks() {
+    // Single pass over all cards — builds all smart deck sets simultaneously
+    const recentCutoff = Date.now() - 7 * 24 * 60 * 60 * 1000;
+    const staleCutoff  = Date.now() - 30 * 24 * 60 * 60 * 1000;
+    const recentIds = new Set<string>();
+    const unseenIds = new Set<string>();
+    const staleIds  = new Set<string>();
 
-  _updateFrequentDeck() {
-    const ids = new Set<string>(
+    for (const card of this.cards.values()) {
+      const stat = this.usageStats.get(card.id);
+      if (new Date(card.createdAt).getTime() >= recentCutoff) recentIds.add(card.id);
+      if (!stat || stat.count === 0) unseenIds.add(card.id);
+      if (!stat || !stat.lastOpened || stat.lastOpened < staleCutoff) staleIds.add(card.id);
+    }
+
+    const frequentIds = new Set<string>(
       Array.from(this.usageStats.entries())
         .sort((a, b) => (b[1].count || 0) - (a[1].count || 0))
         .slice(0, 5)
         .map(([id]) => id)
     );
-    this._setDeckCards('frequent', ids);
-  }
 
-  _updateUnseenDeck() {
-    const ids = new Set<string>();
-    for (const card of this.cards.values()) {
-      const stat = this.usageStats.get(card.id);
-      if (!stat || stat.count === 0) {
-        ids.add(card.id);
-      }
-    }
-    this._setDeckCards('unseen', ids);
-  }
+    this._setDeckCards('recent',   recentIds);
+    this._setDeckCards('frequent', frequentIds);
+    this._setDeckCards('unseen',   unseenIds);
+    this._setDeckCards('stale',    staleIds);
 
-  _updateStaleDeck() {
-    const cutoff = Date.now() - 30 * 24 * 60 * 60 * 1000;
-    const ids = new Set<string>();
-    for (const card of this.cards.values()) {
-      const stat = this.usageStats.get(card.id);
-      if (!stat || !stat.lastOpened || stat.lastOpened < cutoff) {
-        ids.add(card.id);
-      }
-    }
-    this._setDeckCards('stale', ids);
-  }
-
-  _updateTagDecks() {
+    // Tag decks
     for (const [tag, set] of this.tagIndex.entries()) {
       const deckName = `tag:${tag}`;
-      if (set.size >= 3) {
-        this._setDeckCards(deckName, set);
-      } else if (this.decks.has(deckName)) {
-        this.removeDeck(deckName);
-      }
+      if (set.size >= 3) this._setDeckCards(deckName, set);
+      else if (this.decks.has(deckName)) this.removeDeck(deckName);
     }
     for (const name of Array.from(this.decks.keys())) {
-      if (name.startsWith('tag:') && !this.tagIndex.has(name.slice(4))) {
-        this.removeDeck(name);
-      }
+      if (name.startsWith('tag:') && !this.tagIndex.has(name.slice(4))) this.removeDeck(name);
     }
-  }
-
-  _updateSmartDecks() {
-    this._updateRecentDeck();
-    this._updateFrequentDeck();
-    this._updateUnseenDeck();
-    this._updateStaleDeck();
-    this._updateTagDecks();
   }
 
   /** Debounce smart deck rebuilds — coalesce rapid mutations into one update */

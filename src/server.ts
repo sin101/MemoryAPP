@@ -1,6 +1,7 @@
 import express from 'express';
 import cors from 'cors';
 import helmet from 'helmet';
+import compression from 'compression';
 import rateLimit from 'express-rate-limit';
 import { promises as fs } from 'fs';
 import crypto from 'crypto';
@@ -10,7 +11,32 @@ import { z } from 'zod';
 import { createServer } from 'http';
 import { config } from './config.js';
 import { fetchUrlMeta } from './urlFetcher.js';
-import { analyzeContent } from './contentAnalyzer.js';
+import { analyzeContent, analyzeContentAsync } from './contentAnalyzer.js';
+
+// ── Simple LRU cache for /api/analyze ─────────────────────────────────────
+const ANALYZE_CACHE_SIZE = 200;
+const ANALYZE_CACHE_TTL  = 5 * 60 * 1000; // 5 minutes
+const analyzeCache = new Map<string, { result: unknown; ts: number }>();
+
+function analyzeKey(text: string, type: string): string {
+  return crypto.createHash('md5').update(`${type}:${text.slice(0, 500)}`).digest('hex');
+}
+
+function getCachedAnalysis(key: string) {
+  const entry = analyzeCache.get(key);
+  if (!entry) return null;
+  if (Date.now() - entry.ts > ANALYZE_CACHE_TTL) { analyzeCache.delete(key); return null; }
+  return entry.result;
+}
+
+function setCachedAnalysis(key: string, result: unknown) {
+  if (analyzeCache.size >= ANALYZE_CACHE_SIZE) {
+    // Evict oldest entry
+    const oldest = analyzeCache.keys().next().value;
+    if (oldest) analyzeCache.delete(oldest);
+  }
+  analyzeCache.set(key, { result, ts: Date.now() });
+}
 
 export const clients = new Set<express.Response>();
 
@@ -20,6 +46,7 @@ const API_TOKEN = config.API_TOKEN || '';
 
 const api = express();
 api.use(helmet());
+api.use(compression());
 api.use(
   rateLimit({
     windowMs: 60 * 1000,
@@ -439,16 +466,40 @@ api.post('/api/clip', async (req, res, next) => {
   }
 });
 
+const analyzeImageSchema = z.object({
+  base64: z.string().max(50 * 1024 * 1024),
+  mimeType: z.string().optional(),
+});
+
+api.post('/api/analyze-image', async (req, res, next) => {
+  try {
+    const { base64, mimeType } = analyzeImageSchema.parse(req.body);
+    if (!app.ai.analyzeImage) {
+      res.json({ description: '', extractedText: '', tags: [] });
+      return;
+    }
+    const result = await app.ai.analyzeImage(base64, mimeType || 'image/jpeg');
+    res.json(result);
+  } catch (e) {
+    next(e);
+  }
+});
+
 const analyzeSchema = z.object({
   text: z.string().max(100_000),
   type: z.string().optional(),
   existingTags: z.array(z.string()).optional(),
 });
 
-api.post('/api/analyze', (req, res, next) => {
+api.post('/api/analyze', async (req, res, next) => {
   try {
     const { text, type, existingTags } = analyzeSchema.parse(req.body);
-    const result = analyzeContent(text, type || 'text', existingTags || []);
+    const key = analyzeKey(text, type || 'text');
+    const cached = getCachedAnalysis(key);
+    if (cached) { res.json(cached); return; }
+    const result = await analyzeContentAsync(text, type || 'text', existingTags || []);
+    setCachedAnalysis(key, result);
+    res.set('Cache-Control', 'private, max-age=300');
     res.json(result);
   } catch (e) {
     next(e);
@@ -460,8 +511,8 @@ const fetchUrlSchema = z.object({ url: z.string().url() });
 api.get('/api/fetch-url', async (req, res, next) => {
   try {
     const { url } = fetchUrlSchema.parse({ url: req.query.url });
-    // fetchContent=false for previews — full extraction happens on save
     const meta = await fetchUrlMeta(url, false);
+    res.set('Cache-Control', 'public, max-age=3600');
     res.json(meta);
   } catch (e) {
     next(e);

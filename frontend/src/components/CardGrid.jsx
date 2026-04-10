@@ -1,351 +1,349 @@
-import React, { useEffect, useRef, useState } from 'react';
-import { FixedSizeGrid as Grid } from 'react-window';
+import React, { memo, useEffect, useRef, useState, useMemo, useCallback } from 'react';
 import { tagColor } from '../tagColors';
 
 const typeIcons = {
-  text:    '📝',
-  image:   '🖼️',
-  link:    '🔗',
-  file:    '📁',
-  video:   '🎬',
-  audio:   '🎤',
-  youtube: '▶',
-  tweet:   '𝕏',
-  article: '📰',
+  text: '📝', image: '🖼️', link: '🔗', file: '📁',
+  video: '🎬', audio: '🎤', youtube: '▶', tweet: '𝕏', article: '📰',
 };
 
-function YouTubeEmbed({ videoId, title }) {
-  const [playing, setPlaying] = useState(false);
-  const thumbnailUrl = `https://img.youtube.com/vi/${videoId}/hqdefault.jpg`;
-  if (playing) {
-    return (
-      <div className="mb-2 relative" style={{ paddingBottom: '56.25%', height: 0 }}>
-        <iframe
-          className="absolute inset-0 w-full h-full rounded"
-          src={`https://www.youtube.com/embed/${videoId}?autoplay=1`}
-          title={title}
-          allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
-          allowFullScreen
-          onClick={e => e.stopPropagation()}
-        />
-      </div>
-    );
+function escapeRegExp(s) { return s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'); }
+function highlightText(text, q) {
+  if (!q) return text;
+  const parts = String(text).split(new RegExp(`(${escapeRegExp(q)})`, 'ig'));
+  return parts.map((p, i) => i % 2 === 1 ? <mark key={i}>{p}</mark> : p);
+}
+
+// ── Compute shared-tag edges between visible cards ─────────────────────────
+function computeEdges(cards) {
+  const edges = [];
+  for (let i = 0; i < cards.length; i++) {
+    const tagsA = new Set(cards[i].tags || []);
+    if (!tagsA.size) continue;
+    for (let j = i + 1; j < cards.length; j++) {
+      const shared = (cards[j].tags || []).filter(t => tagsA.has(t));
+      if (shared.length > 0) edges.push({ from: i, to: j, shared, strength: shared.length });
+    }
   }
+  // Keep only strongest edges per card (max 3 connections each) to avoid clutter
+  const connections = new Array(cards.length).fill(0);
+  return edges
+    .sort((a, b) => b.strength - a.strength)
+    .filter(e => {
+      if (connections[e.from] >= 3 || connections[e.to] >= 3) return false;
+      connections[e.from]++;
+      connections[e.to]++;
+      return true;
+    });
+}
+
+// ── Tooltip shown on hover ─────────────────────────────────────────────────
+const CardTooltip = memo(function CardTooltip({ card, rect, containerRect }) {
+  if (!card || !rect || !containerRect) return null;
+
+  // Position tooltip above or below card
+  const gap = 8;
+  const tooltipW = 280;
+  let left = rect.left - containerRect.left + rect.width / 2 - tooltipW / 2;
+  left = Math.max(4, Math.min(left, containerRect.width - tooltipW - 4));
+  const spaceAbove = rect.top - containerRect.top;
+  const above = spaceAbove > 180;
+  const top = above
+    ? rect.top - containerRect.top - gap
+    : rect.bottom - containerRect.top + gap;
+
+  const domain = card.source
+    ? (() => { try { return new URL(card.source).hostname.replace(/^www\./, ''); } catch { return null; } })()
+    : null;
+
   return (
     <div
-      className="relative mb-2 rounded overflow-hidden cursor-pointer"
-      onClick={e => { e.stopPropagation(); setPlaying(true); }}
-      title="Play video"
+      className="absolute z-40 pointer-events-none"
+      style={{ left, top, width: tooltipW, transform: above ? 'translateY(-100%)' : 'none' }}
     >
-      <img
-        src={thumbnailUrl}
-        alt={title}
-        className="w-full h-32 object-cover"
-        onError={e => { e.currentTarget.style.display = 'none'; }}
-      />
-      <div className="absolute inset-0 flex items-center justify-center bg-black/30 hover:bg-black/40 transition">
-        <div className="w-12 h-12 bg-red-600 rounded-full flex items-center justify-center shadow-lg">
-          <span className="text-white text-xl ml-1">▶</span>
-        </div>
-      </div>
-    </div>
-  );
-}
-
-function TweetCard({ card }) {
-  const domain = card.source
-    ? new URL(card.source).hostname.replace(/^www\./, '')
-    : 'x.com';
-  return (
-    <a
-      href={card.source}
-      target="_blank"
-      rel="noopener noreferrer"
-      className="block mb-2 border border-sky-200 dark:border-sky-700 rounded-xl p-3 bg-sky-50 dark:bg-sky-900/20 hover:bg-sky-100 dark:hover:bg-sky-900/40 transition no-underline"
-      onClick={e => e.stopPropagation()}
-    >
-      <div className="flex items-center gap-2 mb-1">
-        <span className="font-bold text-sky-600 dark:text-sky-400">𝕏</span>
-        <span className="text-xs text-gray-500 dark:text-gray-400">{domain}</span>
-      </div>
-      {card.description && (
-        <p className="text-sm line-clamp-4 text-gray-800 dark:text-gray-200 whitespace-pre-wrap">
-          {card.description}
-        </p>
-      )}
-    </a>
-  );
-}
-
-function ArticleCard({ card }) {
-  const domain = card.source
-    ? (() => { try { return new URL(card.source).hostname.replace(/^www\./, ''); } catch { return ''; } })()
-    : '';
-  return (
-    <a
-      href={card.source}
-      target="_blank"
-      rel="noopener noreferrer"
-      className="block mb-2 no-underline"
-      onClick={e => e.stopPropagation()}
-    >
-      {card.illustration && (
-        <img
-          src={card.illustration}
-          alt=""
-          className="w-full h-28 object-cover rounded-lg mb-1"
-          onError={e => { e.currentTarget.style.display = 'none'; }}
-        />
-      )}
-      {domain && (
-        <p className="text-xs text-gray-400 dark:text-gray-500 flex items-center gap-1 mb-0.5">
+      <div className="bg-white dark:bg-gray-900 rounded-xl shadow-2xl border border-gray-200 dark:border-gray-700 p-3 text-left">
+        {/* Image preview */}
+        {(card.image || card.illustration) && (
           <img
-            src={`https://www.google.com/s2/favicons?domain=${domain}&sz=16`}
+            src={card.image || card.illustration}
             alt=""
-            className="w-3 h-3"
+            className="w-full h-28 object-cover rounded-lg mb-2"
             onError={e => { e.currentTarget.style.display = 'none'; }}
           />
-          {domain}
-        </p>
-      )}
-    </a>
-  );
-}
+        )}
 
-function LinkCard({ card }) {
-  const domain = card.source
-    ? (() => { try { return new URL(card.source).hostname.replace(/^www\./, ''); } catch { return card.source; } })()
-    : '';
-  return (
-    <a
-      href={card.source}
-      target="_blank"
-      rel="noopener noreferrer"
-      className="flex items-center gap-2 mb-2 text-blue-600 dark:text-blue-400 hover:underline text-xs no-underline"
-      onClick={e => e.stopPropagation()}
-    >
-      {domain && (
-        <img
-          src={`https://www.google.com/s2/favicons?domain=${domain}&sz=16`}
-          alt=""
-          className="w-3 h-3 shrink-0"
-          onError={e => { e.currentTarget.style.display = 'none'; }}
-        />
-      )}
-      <span className="truncate">{domain || card.source}</span>
-    </a>
-  );
-}
+        {/* Title */}
+        <div className="flex items-center gap-1.5 mb-1">
+          <span className="text-sm">{typeIcons[card.type] || '📝'}</span>
+          <p className="text-sm font-semibold text-gray-900 dark:text-gray-100 leading-tight line-clamp-2">{card.title}</p>
+        </div>
 
-export default function CardGrid({ cards, onSelect, onEdit, onDelete, cardBg, cardBorder, highlight }) {
-  const containerRef = useRef(null);
-  const [dims, setDims] = useState({ width: 0, height: 0, columnCount: 1 });
-
-  useEffect(() => {
-    let rafId = null;
-    function measure() {
-      if (!containerRef.current) return;
-      const width = containerRef.current.clientWidth;
-      if (!width) {
-        // Layout not ready — retry on next animation frame
-        rafId = requestAnimationFrame(measure);
-        return;
-      }
-      const columnCount = width >= 768 ? 3 : width >= 640 ? 2 : 1;
-      const rect = containerRef.current.getBoundingClientRect();
-      const height = Math.max(500, window.innerHeight - rect.top - 16);
-      setDims({ width, height, columnCount });
-    }
-    measure();
-    const ro = new ResizeObserver(measure);
-    if (containerRef.current) ro.observe(containerRef.current);
-    window.addEventListener('resize', measure);
-    return () => {
-      if (rafId) cancelAnimationFrame(rafId);
-      ro.disconnect();
-      window.removeEventListener('resize', measure);
-    };
-  }, []);
-
-  const rowCount = Math.ceil(cards.length / dims.columnCount);
-  const columnWidth = dims.columnCount ? dims.width / dims.columnCount : dims.width;
-  const rowHeight = 280;
-
-  const escapeRegExp = s => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-  const highlightText = (text, q) => {
-    if (!q) return text;
-    const regex = new RegExp(`(${escapeRegExp(q)})`, 'ig');
-    const parts = String(text).split(regex);
-    return parts.map((part, i) => (i % 2 === 1 ? <mark key={i}>{part}</mark> : part));
-  };
-
-  const itemData = { cards, columnCount: dims.columnCount, onSelect, onEdit, onDelete, cardBg, cardBorder, highlight, highlightText };
-
-  const Cell = ({ columnIndex, rowIndex, style, data }) => {
-    const index = rowIndex * data.columnCount + columnIndex;
-    if (index >= data.cards.length) return null;
-    const card = data.cards[index];
-    return (
-      <div style={{ ...style, padding: 8 }}>
-        <div
-          className="group relative border-4 p-4 rounded-xl cursor-pointer shadow-md hover:shadow-xl transform hover:-translate-y-1 hover:scale-105 transition bg-white dark:bg-gray-800 dark:text-white"
-          style={{
-            backgroundColor: data.cardBg,
-            borderColor: (card.tags?.[0]) ? tagColor(card.tags[0]) : data.cardBorder,
-          }}
-          onClick={() => data.onSelect(card)}
-          role="button"
-          tabIndex={0}
-          aria-label={`View ${card.title}`}
-          onKeyDown={e => {
-            if (e.key === 'Enter' || e.key === ' ') {
-              e.preventDefault();
-              data.onSelect(card);
-            }
-          }}
-        >
-          <div className="absolute top-1 right-1 space-x-1 opacity-0 group-hover:opacity-100 group-focus-within:opacity-100">
-            <button
-              aria-label={`Edit ${card.title}`}
-              onClick={e => {
-                e.stopPropagation();
-                data.onEdit && data.onEdit(card);
-              }}
-              className="text-xs"
-            >
-              ✏️
-            </button>
-            <button
-              aria-label={`Delete ${card.title}`}
-              onClick={e => {
-                e.stopPropagation();
-                data.onDelete && data.onDelete(card.id);
-              }}
-              className="text-xs"
-            >
-              🗑️
-            </button>
-          </div>
-          <h3 className="text-base font-semibold mb-2 flex items-center gap-1 leading-tight">
-            <span>{typeIcons[card.type || 'text'] || '📝'}</span>
-            <span className="line-clamp-2">{data.highlightText(card.title, data.highlight)}</span>
-          </h3>
-
-          {/* YouTube */}
-          {card.type === 'youtube' && card.content && (
-            <YouTubeEmbed videoId={card.content} title={card.title} />
-          )}
-
-          {/* Tweet */}
-          {card.type === 'tweet' && (
-            <TweetCard card={card} />
-          )}
-
-          {/* Article */}
-          {card.type === 'article' && (
-            <ArticleCard card={card} />
-          )}
-
-          {/* Generic link */}
-          {card.type === 'link' && card.source && (
-            <LinkCard card={card} />
-          )}
-
-          {/* Uploaded image */}
-          {card.type === 'image' && (card.image || card.illustration) && (
-            <img src={card.image || card.illustration} alt={card.title} className="mb-2 max-h-32 rounded object-cover w-full" />
-          )}
-
-          {/* Illustration — shown for all types that don't have a dedicated visual */}
-          {card.illustration && !['youtube', 'tweet'].includes(card.type) && !(card.type === 'image' && (card.image || card.illustration === card.image)) && (
-            <img
-              src={card.illustration}
-              alt="illustration"
-              className="mb-2 max-h-24 rounded object-cover w-full"
-              onError={e => { e.currentTarget.style.display = 'none'; }}
-            />
-          )}
-
-          {/* Uploaded video */}
-          {card.type === 'video' && card.video && (
-            <video src={card.video} controls className="mb-2 max-h-32 rounded w-full" onClick={e => e.stopPropagation()} />
-          )}
-
-          {/* Audio */}
-          {card.type === 'audio' && card.audio && (
-            <div className="mb-2">
-              <audio src={card.audio} controls className="w-full" onClick={e => e.stopPropagation()} />
-              {card.contentType && (
-                <p className="text-xs text-gray-500 dark:text-gray-400">{card.contentType}</p>
-              )}
-              {typeof card.duration === 'number' && card.duration > 0 && (
-                <p className="text-xs text-gray-500 dark:text-gray-400">{card.duration.toFixed(1)}s</p>
-              )}
-            </div>
-          )}
-
-          {/* Description / excerpt */}
-          <p className="text-sm text-gray-700 dark:text-gray-300 line-clamp-3">
-            {data.highlightText(card.description || card.summary || '', data.highlight)}
+        {/* Source domain */}
+        {domain && (
+          <p className="text-xs text-gray-400 dark:text-gray-500 mb-1 flex items-center gap-1">
+            <img src={`https://www.google.com/s2/favicons?domain=${domain}&sz=16`} alt="" className="w-3 h-3" onError={e => { e.currentTarget.style.display = 'none'; }} />
+            {domain}
           </p>
-          {card.summary && (
-            <p className="text-sm text-gray-600 dark:text-gray-400">{card.summary}</p>
-          )}
-          {card.createdAt && (
-            <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">
-              {new Date(card.createdAt).toLocaleDateString()}
-            </p>
-          )}
-          <div className="mt-2 space-x-1">
-            {card.tags.map(tag => (
-              <span
-                key={tag}
-                className="inline-block px-2 py-1 text-xs rounded text-gray-700 dark:text-gray-200"
-                style={{ backgroundColor: tagColor(tag) }}
-              >
+        )}
+
+        {/* Summary or description */}
+        {(card.summary || card.description) && (
+          <p className="text-xs text-gray-600 dark:text-gray-400 line-clamp-3 mb-2">
+            {card.summary || card.description}
+          </p>
+        )}
+
+        {/* Tags */}
+        {card.tags?.length > 0 && (
+          <div className="flex flex-wrap gap-1">
+            {card.tags.slice(0, 8).map(tag => (
+              <span key={tag} className="px-1.5 py-0.5 text-xs rounded text-gray-700 dark:text-gray-200" style={{ backgroundColor: tagColor(tag) }}>
                 {tag}
               </span>
             ))}
+            {card.tags.length > 8 && <span className="text-xs text-gray-400">+{card.tags.length - 8}</span>}
           </div>
-          {card.decks && card.decks.length > 0 && (
-            <div className="mt-2 space-x-1">
-              {card.decks.map(deck => (
-                <span
-                  key={deck}
-                  className="inline-block bg-blue-100 text-blue-700 dark:bg-blue-900 dark:text-blue-300 px-2 py-1 text-xs rounded"
-                >
-                  {deck}
-                </span>
-              ))}
-            </div>
-          )}
-        </div>
+        )}
+
+        {/* Date */}
+        {card.createdAt && (
+          <p className="text-xs text-gray-400 dark:text-gray-500 mt-1.5">
+            {new Date(card.createdAt).toLocaleDateString()}
+          </p>
+        )}
       </div>
-    );
-  };
+      {/* Arrow */}
+      <div
+        className="absolute left-1/2 -translate-x-1/2 w-3 h-3 bg-white dark:bg-gray-900 border-gray-200 dark:border-gray-700 rotate-45"
+        style={above
+          ? { bottom: -6, borderRight: '1px solid', borderBottom: '1px solid' }
+          : { top: -6, borderLeft: '1px solid', borderTop: '1px solid' }}
+      />
+    </div>
+  );
+});
+
+// ── Mini card ──────────────────────────────────────────────────────────────
+const MiniCard = memo(function MiniCard({ card, cardBg, cardBorder, highlight, onSelect, onEdit, onDelete, onHover, isHovered, isRelated }) {
+  const ref = useRef(null);
+  const borderColor = card.tags?.[0] ? tagColor(card.tags[0]) : cardBorder;
+
+  const handleMouseEnter = useCallback(() => {
+    onHover(card, ref.current?.getBoundingClientRect() ?? null);
+  }, [card, onHover]);
+  const handleMouseLeave = useCallback(() => onHover(null, null), [onHover]);
+  const handleEdit = useCallback(e => { e.stopPropagation(); onEdit?.(card); }, [card, onEdit]);
+  const handleDelete = useCallback(e => { e.stopPropagation(); onDelete?.(card.id); }, [card.id, onDelete]);
+
+  const hasVisual = card.image || card.illustration;
+  const primaryTag = card.tags?.[0];
 
   return (
-    <div ref={containerRef} className="w-full">
-      {!cards.length ? (
-        <div className="flex flex-col items-center justify-center py-16 text-gray-400 dark:text-gray-500">
-          <span className="text-4xl mb-3">🗂</span>
-          <p className="text-sm">No cards found</p>
-          <p className="text-xs mt-1">Try clearing your search or deck filter</p>
+    <div
+      ref={ref}
+      className={[
+        'group relative rounded-xl cursor-pointer transition-all duration-150 overflow-hidden select-none',
+        'border-2 shadow-sm',
+        isHovered ? 'shadow-xl scale-105 z-20' : 'hover:shadow-md hover:scale-102',
+        isRelated ? 'ring-2 ring-blue-400 ring-offset-1 dark:ring-offset-gray-900' : '',
+      ].join(' ')}
+      style={{ backgroundColor: cardBg, borderColor, minHeight: 80 }}
+      onClick={() => onSelect(card)}
+      onMouseEnter={handleMouseEnter}
+      onMouseLeave={handleMouseLeave}
+      role="button"
+      tabIndex={0}
+      aria-label={`View ${card.title}`}
+      onKeyDown={e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); onSelect(card); } }}
+    >
+      {/* Image / illustration strip */}
+      {hasVisual && (
+        <div className="w-full h-20 overflow-hidden">
+          <img
+            src={card.image || card.illustration}
+            alt=""
+            className="w-full h-full object-cover"
+            onError={e => { e.currentTarget.parentElement.style.display = 'none'; }}
+          />
         </div>
-      ) : dims.width > 0 && dims.height > 0 ? (
-        <Grid
-          columnCount={dims.columnCount}
-          columnWidth={columnWidth}
-          height={dims.height}
-          rowCount={rowCount}
-          rowHeight={rowHeight}
-          itemData={itemData}
-          width={dims.width}
-        >
-          {Cell}
-        </Grid>
-      ) : null}
+      )}
+
+      {/* Content */}
+      <div className="p-2.5">
+        {/* Type icon + title */}
+        <div className="flex items-start gap-1 mb-1">
+          <span className="text-xs shrink-0 mt-px">{typeIcons[card.type] || '📝'}</span>
+          <p className="text-xs font-semibold leading-tight line-clamp-2 text-gray-900 dark:text-gray-100">
+            {highlightText(card.title, highlight)}
+          </p>
+        </div>
+
+        {/* Primary tag pill */}
+        {primaryTag && (
+          <span className="inline-block px-1.5 py-0.5 text-xs rounded text-gray-700 dark:text-gray-200 truncate max-w-full" style={{ backgroundColor: tagColor(primaryTag) }}>
+            {primaryTag}
+          </span>
+        )}
+        {card.tags?.length > 1 && (
+          <span className="ml-1 text-xs text-gray-400 dark:text-gray-500">+{card.tags.length - 1}</span>
+        )}
+      </div>
+
+      {/* Edit/delete on hover */}
+      <div className="absolute top-1 right-1 flex gap-0.5 opacity-0 group-hover:opacity-100 transition-opacity">
+        <button onClick={handleEdit} className="w-5 h-5 flex items-center justify-center rounded bg-white/80 dark:bg-gray-800/80 text-xs hover:bg-white dark:hover:bg-gray-700 shadow" aria-label={`Edit ${card.title}`}>✏️</button>
+        <button onClick={handleDelete} className="w-5 h-5 flex items-center justify-center rounded bg-white/80 dark:bg-gray-800/80 text-xs hover:bg-white dark:hover:bg-gray-700 shadow" aria-label={`Delete ${card.title}`}>🗑️</button>
+      </div>
+    </div>
+  );
+});
+
+// ── SVG relation lines overlay ─────────────────────────────────────────────
+function RelationLines({ edges, cardRects, hoveredIndex, containerRect }) {
+  if (!edges.length || !containerRect) return null;
+  return (
+    <svg
+      className="absolute inset-0 pointer-events-none"
+      width={containerRect.width}
+      height={containerRect.height}
+      style={{ zIndex: 10 }}
+    >
+      {edges.map((edge, i) => {
+        const rA = cardRects[edge.from];
+        const rB = cardRects[edge.to];
+        if (!rA || !rB) return null;
+        const x1 = rA.left - containerRect.left + rA.width / 2;
+        const y1 = rA.top - containerRect.top + rA.height / 2;
+        const x2 = rB.left - containerRect.left + rB.width / 2;
+        const y2 = rB.top - containerRect.top + rB.height / 2;
+        const isActive = hoveredIndex === edge.from || hoveredIndex === edge.to;
+        const sharedColor = tagColor(edge.shared[0] || '');
+        return (
+          <line
+            key={i}
+            x1={x1} y1={y1} x2={x2} y2={y2}
+            stroke={isActive ? sharedColor : '#94a3b8'}
+            strokeWidth={isActive ? 2 : 1}
+            strokeDasharray={isActive ? 'none' : '4 4'}
+            opacity={isActive ? 0.8 : 0.25}
+          >
+            {isActive && (
+              <title>{edge.shared.join(', ')}</title>
+            )}
+          </line>
+        );
+      })}
+    </svg>
+  );
+}
+
+// ── Main CardGrid ──────────────────────────────────────────────────────────
+function CardGrid({ cards, onSelect, onEdit, onDelete, cardBg, cardBorder, highlight }) {
+  const containerRef = useRef(null);
+  const [containerRect, setContainerRect] = useState(null);
+  const [cardRects, setCardRects] = useState([]);
+  const cardRefs = useRef([]);
+  const [hoveredCard, setHoveredCard] = useState(null);
+  const [hoveredRect, setHoveredRect] = useState(null);
+  const [hoveredIndex, setHoveredIndex] = useState(-1);
+
+  // Measure container
+  useEffect(() => {
+    if (!containerRef.current) return;
+    const ro = new ResizeObserver(() => {
+      setContainerRect(containerRef.current?.getBoundingClientRect() ?? null);
+    });
+    ro.observe(containerRef.current);
+    setContainerRect(containerRef.current.getBoundingClientRect());
+    return () => ro.disconnect();
+  }, []);
+
+  // Measure card positions after layout (for SVG lines)
+  useEffect(() => {
+    if (!containerRef.current) return;
+    const measure = () => {
+      const cr = containerRef.current?.getBoundingClientRect();
+      if (!cr) return;
+      setContainerRect(cr);
+      setCardRects(cardRefs.current.map(el => el?.getBoundingClientRect() ?? null));
+    };
+    // Slight delay so grid is painted
+    const id = requestAnimationFrame(measure);
+    window.addEventListener('resize', measure);
+    return () => { cancelAnimationFrame(id); window.removeEventListener('resize', measure); };
+  }, [cards]);
+
+  // Compute shared-tag edges (memoized on card ids + tags)
+  const tagSignature = useMemo(() => cards.map(c => `${c.id}:${(c.tags || []).join(',')}`).join('|'), [cards]);
+  const edges = useMemo(() => computeEdges(cards), [tagSignature]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Which cards are related to the hovered card
+  const relatedIndices = useMemo(() => {
+    if (hoveredIndex < 0) return new Set();
+    return new Set(edges.filter(e => e.from === hoveredIndex || e.to === hoveredIndex).flatMap(e => [e.from, e.to]));
+  }, [edges, hoveredIndex]);
+
+  const handleHover = useCallback((card, rect) => {
+    setHoveredCard(card);
+    setHoveredRect(rect);
+    if (!card) { setHoveredIndex(-1); return; }
+    const idx = cards.findIndex(c => c.id === card.id);
+    setHoveredIndex(idx);
+  }, [cards]);
+
+  // Sync cardRefs array length
+  useEffect(() => {
+    cardRefs.current = cardRefs.current.slice(0, cards.length);
+  }, [cards.length]);
+
+  if (!cards.length) {
+    return (
+      <div className="flex flex-col items-center justify-center py-16 text-gray-400 dark:text-gray-500">
+        <span className="text-4xl mb-3">🗂</span>
+        <p className="text-sm">No cards found</p>
+        <p className="text-xs mt-1">Try clearing your search or deck filter</p>
+      </div>
+    );
+  }
+
+  return (
+    <div ref={containerRef} className="relative w-full" style={{ minHeight: 120 }}>
+      {/* SVG relation lines */}
+      <RelationLines
+        edges={edges}
+        cardRects={cardRects}
+        hoveredIndex={hoveredIndex}
+        containerRect={containerRect}
+      />
+
+      {/* Card grid — CSS grid, no react-window, so we can measure card positions */}
+      <div
+        className="grid gap-3"
+        style={{ gridTemplateColumns: 'repeat(auto-fill, minmax(160px, 1fr))' }}
+      >
+        {cards.map((card, idx) => (
+          <div key={card.id} ref={el => { cardRefs.current[idx] = el; }}>
+            <MiniCard
+              card={card}
+              cardBg={cardBg}
+              cardBorder={cardBorder}
+              highlight={highlight}
+              onSelect={onSelect}
+              onEdit={onEdit}
+              onDelete={onDelete}
+              onHover={handleHover}
+              isHovered={hoveredIndex === idx}
+              isRelated={relatedIndices.has(idx) && hoveredIndex !== idx}
+            />
+          </div>
+        ))}
+      </div>
+
+      {/* Hover tooltip */}
+      {hoveredCard && hoveredRect && containerRect && (
+        <CardTooltip card={hoveredCard} rect={hoveredRect} containerRect={containerRect} />
+      )}
     </div>
   );
 }
 
+export default memo(CardGrid);

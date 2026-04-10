@@ -26,6 +26,7 @@ export interface AIProvider {
   chat(query: string, app: import('./app.js').default): Promise<string>;
   embed(text: string): Promise<number[]>;
   transcribe?(path: string): Promise<string>;
+  analyzeImage?(base64: string, mimeType?: string): Promise<{ description: string; extractedText: string; tags: string[] }>;
 }
 
 export interface AppOptions {

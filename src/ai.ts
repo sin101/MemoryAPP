@@ -3,6 +3,7 @@ import path from 'path';
 import type Card from './card.js';
 import type MemoryApp from './app.js';
 import type { AIProvider } from './types.js';
+import { extractiveSummarize } from './contentAnalyzer.js';
 
 export const HF_MODELS: Record<string, string> = {
   summarization: 'google/mt5-base',
@@ -51,17 +52,7 @@ function loadTransformers(): Promise<any> {
 export class SimpleAI implements AIProvider {
   async summarize(text: string): Promise<string> {
     if (!text || text.trim().length === 0) return '';
-    // Extract first 2-3 meaningful sentences (at least 6 words each)
-    const sentences = text
-      .replace(/\n+/g, ' ')
-      .split(/(?<=[.!?])\s+/)
-      .map(s => s.trim())
-      .filter(s => s.split(/\s+/).length >= 6 && s.length < 400);
-    if (sentences.length > 0) {
-      return sentences.slice(0, 2).join(' ');
-    }
-    // Fallback: first 150 chars
-    return text.trim().slice(0, 150);
+    return extractiveSummarize(text, 3);
   }
 
   async summarizeCard(card: Card): Promise<string> {
@@ -97,6 +88,61 @@ export class SimpleAI implements AIProvider {
     const norm = Math.sqrt(vec.reduce((s, v) => s + v * v, 0)) || 1;
     return vec.map(v => v / norm);
   }
+
+  async analyzeImage(base64: string, mimeType = 'image/jpeg'): Promise<{ description: string; extractedText: string; tags: string[] }> {
+    return _pollinationsAnalyzeImage(base64, mimeType);
+  }
+}
+
+/** Shared Pollinations vision call used by all AI providers */
+async function _pollinationsAnalyzeImage(
+  base64: string,
+  mimeType = 'image/jpeg'
+): Promise<{ description: string; extractedText: string; tags: string[] }> {
+  const prompt =
+    'Analyze this image. Identify objects, scene, colors, any visible text, and themes. ' +
+    'Reply ONLY with this JSON (no markdown fences, no extra words): ' +
+    '{"description":"2-3 sentence description","extractedText":"any text in image or empty string","tags":["tag1","tag2","tag3","tag4","tag5"]}';
+  try {
+    const res = await fetch('https://text.pollinations.ai/openai', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Origin': 'http://localhost:5173',
+        'Referer': 'http://localhost:5173/',
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
+      },
+      body: JSON.stringify({
+        model: 'openai-large',
+        messages: [
+          {
+            role: 'user',
+            content: [
+              { type: 'text', text: prompt },
+              { type: 'image_url', image_url: { url: `data:${mimeType};base64,${base64}` } },
+            ],
+          },
+        ],
+        max_tokens: 400,
+      }),
+      signal: AbortSignal.timeout(30_000),
+    });
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    const data = await res.json() as any;
+    const content: string = data.choices?.[0]?.message?.content ?? '';
+    const match = content.match(/\{[\s\S]*\}/);
+    if (match) {
+      const parsed = JSON.parse(match[0]);
+      return {
+        description:   String(parsed.description   ?? ''),
+        extractedText: String(parsed.extractedText ?? ''),
+        tags:          Array.isArray(parsed.tags) ? parsed.tags.map(String) : [],
+      };
+    }
+  } catch {
+    // Fall through to empty result
+  }
+  return { description: '', extractedText: '', tags: [] };
 }
 
 export class HuggingFaceAI implements AIProvider {
@@ -138,15 +184,14 @@ export class HuggingFaceAI implements AIProvider {
 
   async summarize(text: string): Promise<string> {
     await this.ready;
+    // Try HuggingFace summarization model first
     try {
       const data = await this._json(this.models.summarization, { inputs: text });
       if (Array.isArray(data) && data[0] && data[0].summary_text) {
         return data[0].summary_text;
       }
-    } catch (e) {
-      // fall back to simple heuristic
-    }
-    return text.split(/\s+/).slice(0, 20).join(' ');
+    } catch { /* fall through */ }
+    return extractiveSummarize(text, 3);
   }
 
   async summarizeCard(card: Card) {
@@ -300,6 +345,10 @@ export class HuggingFaceAI implements AIProvider {
     }
     return (await res.json()) as any;
   }
+
+  async analyzeImage(base64: string, mimeType = 'image/jpeg'): Promise<{ description: string; extractedText: string; tags: string[] }> {
+    return _pollinationsAnalyzeImage(base64, mimeType);
+  }
 }
 
 export class TransformersAI implements AIProvider {
@@ -374,5 +423,9 @@ export class TransformersAI implements AIProvider {
       return this.fallback.chat(query, app);
     }
     return '';
+  }
+
+  async analyzeImage(base64: string, mimeType = 'image/jpeg'): Promise<{ description: string; extractedText: string; tags: string[] }> {
+    return _pollinationsAnalyzeImage(base64, mimeType);
   }
 }

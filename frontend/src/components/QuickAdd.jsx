@@ -264,15 +264,56 @@ export default function QuickAdd({ onAdd, initial, aiEnabled }) {
     setTagsLoading(true);
     setSuggestedTags([]);
     try {
-      const res = await fetch('/api/analyze', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ text: txt, type }),
-        signal: analyzeController.current.signal,
-      });
-      if (!res.ok) return;
-      const data = await res.json();
-      setSuggestedTags(data.suggestedTags || []);
+      // Run RAKE (server) and Pollinations AI (browser) in parallel
+      const snippet = txt.replace(/\s+/g, ' ').trim().slice(0, 1200);
+      const aiPrompt =
+        'Extract exactly 10 specific, meaningful topic tags from this text. ' +
+        'Tags must be concrete nouns, named entities, or short technical/domain phrases. ' +
+        'Avoid generic words like "content", "text", "information", "overview". ' +
+        'Output ONLY a JSON array of lowercase hyphenated strings, e.g. ["machine-learning","python","neural-network","climate-change"]. ' +
+        'Text: ' + snippet;
+
+      const [rakeRes, aiRes] = await Promise.allSettled([
+        fetch('/api/analyze', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ text: txt, type }),
+          signal: analyzeController.current.signal,
+        }).then(r => r.ok ? r.json() : Promise.reject()),
+
+        fetch('https://text.pollinations.ai/openai', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            model: 'openai-large',
+            messages: [{ role: 'user', content: aiPrompt }],
+            max_tokens: 300,
+          }),
+          signal: analyzeController.current.signal,
+        }).then(async r => {
+          if (!r.ok) return null;
+          const j = await r.json();
+          const content = j.choices?.[0]?.message?.content ?? '';
+          if (content.includes('IMPORTANT NOTICE') || content.includes('deprecated')) return null;
+          const match = content.match(/\[[\s\S]*?\]/);
+          if (!match) return null;
+          const parsed = JSON.parse(match[0]);
+          return Array.isArray(parsed)
+            ? parsed.map(t => String(t).toLowerCase().replace(/\s+/g, '-').replace(/[^a-z0-9-]/g, '').slice(0, 32)).filter(t => t.length > 2)
+            : null;
+        }),
+      ]);
+
+      const rakeTags = rakeRes.status === 'fulfilled' ? (rakeRes.value?.suggestedTags ?? []) : [];
+      const aiTags   = aiRes.status === 'fulfilled' && Array.isArray(aiRes.value) ? aiRes.value : [];
+
+      // Merge: AI tags first (better quality), then RAKE tags to fill up to 10
+      const merged = [...aiTags];
+      for (const t of rakeTags) {
+        if (!merged.includes(t)) merged.push(t);
+        if (merged.length >= 10) break;
+      }
+      setSuggestedTags(merged.slice(0, 10));
     } catch (e) {
       if (e.name !== 'AbortError') setSuggestedTags([]);
     } finally {
@@ -327,12 +368,10 @@ export default function QuickAdd({ onAdd, initial, aiEnabled }) {
 
     const kind = getFileKind(file);
 
-    // For text-based files, extract content and analyze
-    if (kind === 'textfile' || kind === 'pdf') {
-      setFileProcessing(true);
-      try {
+    setFileProcessing(true);
+    try {
+      if (kind === 'pdf' || kind === 'textfile') {
         let extractedText = '';
-
         if (kind === 'pdf') {
           const buf = await file.arrayBuffer();
           const result = await extractPdfText(buf);
@@ -341,18 +380,181 @@ export default function QuickAdd({ onAdd, initial, aiEnabled }) {
             setFileSizeWarning('This PDF appears to be image-based — no extractable text found.');
           }
         } else {
-          // Plain text files
           extractedText = await file.text();
         }
-
         if (extractedText && aiEnabled) {
           await analyzeText(extractedText.slice(0, 8000), kind === 'pdf' ? 'article' : 'text');
         }
-      } catch (e) {
-        console.error('File extraction error:', e);
-      } finally {
-        setFileProcessing(false);
+      } else if (kind === 'video' && aiEnabled) {
+        // Extract first frame from video and run vision analysis on it
+        setTagsLoading(true);
+        setSuggestedTags([]);
+        try {
+          const videoUrl = URL.createObjectURL(file);
+          const frameBase64 = await new Promise((resolve) => {
+            const video = document.createElement('video');
+            video.src = videoUrl;
+            video.muted = true;
+            video.preload = 'metadata';
+            video.onloadeddata = () => {
+              video.currentTime = Math.min(1, video.duration * 0.1); // 10% in or 1s
+            };
+            video.onseeked = () => {
+              const canvas = document.createElement('canvas');
+              canvas.width = Math.min(video.videoWidth, 640);
+              canvas.height = Math.min(video.videoHeight, 480);
+              canvas.getContext('2d').drawImage(video, 0, 0, canvas.width, canvas.height);
+              URL.revokeObjectURL(videoUrl);
+              const dataUrl = canvas.toDataURL('image/jpeg', 0.8);
+              resolve(dataUrl.split(',')[1]);
+            };
+            video.onerror = () => { URL.revokeObjectURL(videoUrl); resolve(null); };
+            video.load();
+          });
+
+          if (frameBase64) {
+            const visionPrompt =
+              'This is a frame from a video. Analyze it: identify scene, objects, people, activities, setting, colors, any text on screen, and the likely video topic/genre. ' +
+              'Reply ONLY with this exact JSON (no markdown): ' +
+              '{"description":"3-4 sentence description of the video content based on this frame","extractedText":"any text visible on screen or empty string","tags":["tag1","tag2","tag3","tag4","tag5","tag6","tag7","tag8","tag9","tag10"]}. ' +
+              'Tags must be specific: genre, topic, activity, location, people type — not generic words.';
+            const res = await fetch('https://text.pollinations.ai/openai', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({
+                model: 'openai-large',
+                messages: [{ role: 'user', content: [
+                  { type: 'text', text: visionPrompt },
+                  { type: 'image_url', image_url: { url: `data:image/jpeg;base64,${frameBase64}` } },
+                ]}],
+                max_tokens: 600,
+              }),
+              signal: AbortSignal.timeout(30000),
+            });
+            if (res.ok) {
+              const json = await res.json();
+              const content = json.choices?.[0]?.message?.content ?? '';
+              if (!content.includes('IMPORTANT NOTICE') && !content.includes('deprecated')) {
+                const match = content.match(/\{[\s\S]*\}/);
+                if (match) {
+                  try {
+                    const parsed = JSON.parse(match[0]);
+                    const vTags = Array.isArray(parsed.tags)
+                      ? parsed.tags.map(t => String(t).toLowerCase().replace(/\s+/g, '-').replace(/[^a-z0-9-]/g, '').slice(0, 32)).filter(t => t.length > 2)
+                      : [];
+                    // Also analyze filename
+                    const nameText = file.name.replace(/\.[^.]+$/, '').replace(/[-_.]/g, ' ');
+                    const allTags = [...vTags];
+                    if (nameText.length > 3) {
+                      const textRes = await fetch('/api/analyze', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ text: nameText + ' ' + (parsed.description || ''), type: 'video' }),
+                      });
+                      if (textRes.ok) {
+                        const textData = await textRes.json();
+                        for (const t of (textData.suggestedTags || [])) {
+                          if (!allTags.includes(t)) allTags.push(t);
+                          if (allTags.length >= 10) break;
+                        }
+                      }
+                    }
+                    setSuggestedTags(allTags.slice(0, 10));
+                  } catch { /* ignore */ }
+                }
+              }
+            }
+          } else {
+            // No frame extracted — fall back to filename analysis
+            const nameText = file.name.replace(/\.[^.]+$/, '').replace(/[-_.]/g, ' ');
+            if (nameText.length > 3) await analyzeText(nameText, 'video');
+          }
+        } catch (e) {
+          console.error('Video analysis error:', e);
+        } finally {
+          setTagsLoading(false);
+        }
+      } else if (kind === 'image' && aiEnabled) {
+        // Analyze image via Pollinations vision API (called directly from browser)
+        const dataUrl = await new Promise((resolve, reject) => {
+          const r = new FileReader();
+          r.onload = () => resolve(r.result);
+          r.onerror = reject;
+          r.readAsDataURL(file);
+        });
+        const base64 = dataUrl.split(',')[1];
+        const mime = file.type || 'image/jpeg';
+        setTagsLoading(true);
+        setSuggestedTags([]);
+        try {
+          const visionPrompt =
+            'Analyze this image in detail. Identify: main subjects, objects, people, animals, scene/setting, colors, mood, style, any visible text, brands, landmarks, activities, and dominant themes. ' +
+            'Reply ONLY with this exact JSON (no markdown, no code fences, no extra text): ' +
+            '{"description":"3-4 sentence detailed description of everything you see","extractedText":"any text or words visible in the image verbatim, or empty string","tags":["tag1","tag2","tag3","tag4","tag5","tag6","tag7","tag8","tag9","tag10"]}. ' +
+            'Tags must be specific nouns, named entities, or domain phrases — not generic words.';
+          const res = await fetch('https://text.pollinations.ai/openai', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              model: 'openai-large',
+              messages: [{
+                role: 'user',
+                content: [
+                  { type: 'text', text: visionPrompt },
+                  { type: 'image_url', image_url: { url: `data:${mime};base64,${base64}` } },
+                ],
+              }],
+              max_tokens: 600,
+            }),
+            signal: AbortSignal.timeout(30000),
+          });
+          let data = { description: '', extractedText: '', tags: [] };
+          if (res.ok) {
+            const json = await res.json();
+            const content = json.choices?.[0]?.message?.content ?? '';
+            if (!content.includes('IMPORTANT NOTICE') && !content.includes('deprecated')) {
+              const match = content.match(/\{[\s\S]*\}/);
+              if (match) {
+                try {
+                  const parsed = JSON.parse(match[0]);
+                  data = {
+                    description: String(parsed.description ?? ''),
+                    extractedText: String(parsed.extractedText ?? ''),
+                    tags: Array.isArray(parsed.tags) ? parsed.tags.map(t => String(t).toLowerCase().replace(/\s+/g, '-').replace(/[^a-z0-9-]/g, '').slice(0, 32)).filter(t => t.length > 2) : [],
+                  };
+                } catch { /* ignore parse error */ }
+              }
+            }
+          }
+          // Combine with RAKE on description text + filename to add more tags
+          const combinedText = [data.description, data.extractedText, file.name.replace(/\.[^.]+$/, '').replace(/[-_.]/g, ' ')].filter(Boolean).join(' ');
+          const allTags = [...data.tags];
+          if (combinedText.length > 20) {
+            const textRes = await fetch('/api/analyze', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ text: combinedText, type: 'image' }),
+            });
+            if (textRes.ok) {
+              const textData = await textRes.json();
+              for (const t of (textData.suggestedTags || [])) {
+                if (!allTags.includes(t)) allTags.push(t);
+                if (allTags.length >= 10) break;
+              }
+            }
+          }
+          setSuggestedTags(allTags.slice(0, 10));
+          file._imageAnalysis = data;
+        } catch (e) {
+          console.error('Image analysis error:', e);
+        } finally {
+          setTagsLoading(false);
+        }
       }
+    } catch (e) {
+      console.error('File processing error:', e);
+    } finally {
+      setFileProcessing(false);
     }
   }, [aiEnabled, analyzeText]);
 
@@ -422,6 +624,7 @@ export default function QuickAdd({ onAdd, initial, aiEnabled }) {
     const reader = new FileReader();
     reader.onerror = reject;
     reader.onload = () => {
+      const analysis = file._imageAnalysis || {};
       const data = {
         title: file.name,
         source: file.name,
@@ -432,6 +635,11 @@ export default function QuickAdd({ onAdd, initial, aiEnabled }) {
         video: isVideo ? reader.result : undefined,
         audio: isAudio ? reader.result : undefined,
         contentType: file.type,
+        // Enrich image cards with vision analysis
+        ...(isImage && analysis.description ? {
+          description: analysis.description,
+          content: [analysis.description, analysis.extractedText].filter(Boolean).join('\n\n'),
+        } : {}),
       };
       if (isAudio) {
         const audioEl = new Audio(reader.result);
