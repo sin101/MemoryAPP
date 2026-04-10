@@ -280,7 +280,7 @@ export function analyzeContent(
     return { suggestedTags: [], topic: null, keywords: [] };
   }
 
-  const keywords = extractKeywords(text, 14);
+  const keywords = extractKeywords(text, 30);
   const topic    = classifyTopic(text);
 
   const candidates = new Set<string>();
@@ -290,11 +290,11 @@ export function analyzeContent(
   for (const kw of keywords) {
     const tag = cleanTag(kw);
     if (tag.length > 2 && tag.length <= 28) candidates.add(tag);
-    if (candidates.size >= 14) break;
+    if (candidates.size >= 30) break;
   }
 
   const existingSet = new Set(existingTags.map(t => t.toLowerCase()));
-  const suggestedTags = [...candidates].filter(t => !existingSet.has(t)).slice(0, 10);
+  const suggestedTags = [...candidates].filter(t => !existingSet.has(t)).slice(0, 25);
 
   return { suggestedTags, topic, keywords };
 }

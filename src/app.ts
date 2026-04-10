@@ -564,7 +564,7 @@ class MemoryApp extends EventEmitter {
     // Tag decks
     for (const [tag, set] of this.tagIndex.entries()) {
       const deckName = `tag:${tag}`;
-      if (set.size >= 3) this._setDeckCards(deckName, set);
+      if (set.size >= 2) this._setDeckCards(deckName, set);
       else if (this.decks.has(deckName)) this.removeDeck(deckName);
     }
     for (const name of Array.from(this.decks.keys())) {

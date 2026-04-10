@@ -92,15 +92,19 @@ const CardTooltip = memo(function CardTooltip({ card, rect, containerRect }) {
           </p>
         )}
 
-        {/* Tags */}
+        {/* Tags — show top 10 visually; remainder are stored data points */}
         {card.tags?.length > 0 && (
           <div className="flex flex-wrap gap-1">
-            {card.tags.slice(0, 8).map(tag => (
+            {card.tags.slice(0, 10).map(tag => (
               <span key={tag} className="px-1.5 py-0.5 text-xs rounded text-gray-700 dark:text-gray-200" style={{ backgroundColor: tagColor(tag) }}>
                 {tag}
               </span>
             ))}
-            {card.tags.length > 8 && <span className="text-xs text-gray-400">+{card.tags.length - 8}</span>}
+            {card.tags.length > 10 && (
+              <span className="text-xs text-gray-400 dark:text-gray-500 self-center" title={card.tags.slice(10).join(', ')}>
+                +{card.tags.length - 10} hidden
+              </span>
+            )}
           </div>
         )}
 
@@ -135,8 +139,7 @@ const MiniCard = memo(function MiniCard({ card, cardBg, cardBorder, highlight, o
   const handleDelete = useCallback(e => { e.stopPropagation(); onDelete?.(card.id); }, [card.id, onDelete]);
 
   const hasVisual = card.image || card.illustration;
-  const primaryTag = card.tags?.[0];
-
+  // Border color from first tag
   return (
     <div
       ref={ref}
@@ -177,15 +180,17 @@ const MiniCard = memo(function MiniCard({ card, cardBg, cardBorder, highlight, o
           </p>
         </div>
 
-        {/* Primary tag pill */}
-        {primaryTag && (
-          <span className="inline-block px-1.5 py-0.5 text-xs rounded text-gray-700 dark:text-gray-200 truncate max-w-full" style={{ backgroundColor: tagColor(primaryTag) }}>
-            {primaryTag}
-          </span>
-        )}
-        {card.tags?.length > 1 && (
-          <span className="ml-1 text-xs text-gray-400 dark:text-gray-500">+{card.tags.length - 1}</span>
-        )}
+        {/* Primary tag pill — show first two, indicate total */}
+        <div className="flex items-center gap-1 flex-wrap">
+          {card.tags?.slice(0, 2).map(tag => (
+            <span key={tag} className="inline-block px-1.5 py-0.5 text-xs rounded text-gray-700 dark:text-gray-200 truncate max-w-[80px]" style={{ backgroundColor: tagColor(tag) }}>
+              {tag}
+            </span>
+          ))}
+          {card.tags?.length > 2 && (
+            <span className="text-xs text-gray-400 dark:text-gray-500">+{card.tags.length - 2}</span>
+          )}
+        </div>
       </div>
 
       {/* Edit/delete on hover */}

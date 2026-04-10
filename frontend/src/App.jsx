@@ -192,6 +192,20 @@ export default function App() {
   useEffect(() => {
     async function init() {
       await migrateLocalStorage(encKey);
+
+      // Show local cards immediately (optimistic load) so UI is usable offline
+      let stored = await loadCards(encKey);
+      if (stored.length) {
+        stored = stored.map(c => {
+          if (c.deck && !c.decks) { c.decks = [c.deck]; delete c.deck; }
+          return { ...c, decks: c.decks || [] };
+        });
+        setCards(stored);
+        setLinks(await loadLinks(encKey));
+        setUsage(await loadUsage(encKey));
+      }
+
+      // Then sync from server and update
       try {
         const res = await fetch('/api/cards');
         if (res.ok) {
@@ -201,19 +215,16 @@ export default function App() {
           await saveCards(cs, encKey);
           setLinks(data.links || []);
           await saveLinks(data.links || [], encKey);
-          setUsage(await loadUsage(encKey));
+          if (!stored.length) setUsage(await loadUsage(encKey));
           return;
         }
-      } catch { /* fall through to local */ }
-      let stored = await loadCards(encKey);
-      if (!stored.length) { stored = defaultCards; await saveCards(stored, encKey); }
-      stored = stored.map(c => {
-        if (c.deck && !c.decks) { c.decks = [c.deck]; delete c.deck; }
-        return { ...c, decks: c.decks || [] };
-      });
-      setCards(stored);
-      setLinks(await loadLinks(encKey));
-      setUsage(await loadUsage(encKey));
+      } catch { /* server unavailable — keep local */ }
+
+      // No server, no local — fall back to defaults
+      if (!stored.length) {
+        await saveCards(defaultCards, encKey);
+        setCards(defaultCards);
+      }
     }
     init();
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -570,7 +581,7 @@ export default function App() {
 
           <section className="mt-2">
             <h2 className="text-base font-semibold mb-2 text-gray-700 dark:text-gray-300">Suggestions</h2>
-            <SuggestionsList card={selected} cards={cards} enabled={webSuggestionsEnabled} onAdd={handleSuggestionAdd} onEdit={handleSuggestionEdit} />
+            <SuggestionsList card={selected} cards={cards} enabled={webSuggestionsEnabled} onAdd={handleSuggestionAdd} onEdit={handleSuggestionEdit} onSelectCard={selectCard} />
           </section>
 
           <section className="mt-2">

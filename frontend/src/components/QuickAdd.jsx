@@ -1,4 +1,4 @@
-import React, { useState, useRef, useEffect, useCallback } from 'react';
+import React, { useState, useRef, useEffect, useCallback, memo } from 'react';
 import { extractPdfText } from '../pdfExtractor';
 
 const URL_RE = /^https?:\/\/[^\s]{4,}$/i;
@@ -71,7 +71,29 @@ function UrlPreview({ meta, loading, error }) {
   );
 }
 
+function TagChip({ tag, active, onToggle, small = false }) {
+  return (
+    <button
+      type="button"
+      onClick={() => onToggle(tag)}
+      className={[
+        'rounded-full font-medium transition border',
+        small ? 'px-1.5 py-px text-xs' : 'px-2 py-0.5 text-xs',
+        active
+          ? 'bg-blue-600 text-white border-blue-600'
+          : small
+            ? 'bg-gray-50 dark:bg-gray-800 text-gray-500 dark:text-gray-400 border-gray-200 dark:border-gray-700 hover:border-blue-400 hover:text-gray-700'
+            : 'bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-300 border-gray-300 dark:border-gray-600 hover:border-blue-400',
+      ].join(' ')}
+    >
+      {active ? '✓ ' : '+ '}{tag}
+    </button>
+  );
+}
+
 function SuggestedTags({ tags, selected, onToggle, loading }) {
+  const [showExtended, setShowExtended] = React.useState(false);
+
   if (loading) {
     return (
       <div className="flex items-center gap-1.5 text-xs text-gray-400 dark:text-gray-500 mt-1">
@@ -81,28 +103,41 @@ function SuggestedTags({ tags, selected, onToggle, loading }) {
     );
   }
   if (!tags.length) return null;
+
+  const primary  = tags.slice(0, 10);
+  const extended = tags.slice(10);
+
   return (
-    <div className="mt-1">
-      <p className="text-xs text-gray-500 dark:text-gray-400 mb-1">Suggested tags — click to add:</p>
-      <div className="flex flex-wrap gap-1">
-        {tags.map(tag => {
-          const active = selected.has(tag);
-          return (
-            <button
-              key={tag}
-              type="button"
-              onClick={() => onToggle(tag)}
-              className={`px-2 py-0.5 rounded-full text-xs font-medium transition border
-                ${active
-                  ? 'bg-blue-600 text-white border-blue-600'
-                  : 'bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-300 border-gray-300 dark:border-gray-600 hover:border-blue-400'
-                }`}
-            >
-              {active ? '✓ ' : '+ '}{tag}
-            </button>
-          );
-        })}
+    <div className="mt-1 space-y-1.5">
+      {/* Primary tags — top 10, auto-selected */}
+      <div>
+        <p className="text-xs text-gray-500 dark:text-gray-400 mb-1">
+          Top tags <span className="text-gray-400 dark:text-gray-500">(click to toggle)</span>
+        </p>
+        <div className="flex flex-wrap gap-1">
+          {primary.map(tag => <TagChip key={tag} tag={tag} active={selected.has(tag)} onToggle={onToggle} />)}
+        </div>
       </div>
+
+      {/* Extended tags — additional data points, not selected by default */}
+      {extended.length > 0 && (
+        <div>
+          <button
+            type="button"
+            onClick={() => setShowExtended(v => !v)}
+            className="text-xs text-gray-400 dark:text-gray-500 hover:text-gray-600 dark:hover:text-gray-300 flex items-center gap-1"
+          >
+            <span>{showExtended ? '▾' : '▸'}</span>
+            {showExtended ? 'Hide' : 'Show'} {extended.length} additional data points
+            <span className="ml-1 text-gray-300 dark:text-gray-600">(stored but not displayed on card)</span>
+          </button>
+          {showExtended && (
+            <div className="flex flex-wrap gap-1 mt-1">
+              {extended.map(tag => <TagChip key={tag} tag={tag} active={selected.has(tag)} onToggle={onToggle} small />)}
+            </div>
+          )}
+        </div>
+      )}
     </div>
   );
 }
@@ -307,13 +342,16 @@ export default function QuickAdd({ onAdd, initial, aiEnabled }) {
       const rakeTags = rakeRes.status === 'fulfilled' ? (rakeRes.value?.suggestedTags ?? []) : [];
       const aiTags   = aiRes.status === 'fulfilled' && Array.isArray(aiRes.value) ? aiRes.value : [];
 
-      // Merge: AI tags first (better quality), then RAKE tags to fill up to 10
+      // Merge: AI tags first (best quality), then RAKE to fill up to 25 total data points
       const merged = [...aiTags];
       for (const t of rakeTags) {
         if (!merged.includes(t)) merged.push(t);
-        if (merged.length >= 10) break;
+        if (merged.length >= 25) break;
       }
-      setSuggestedTags(merged.slice(0, 10));
+      const allTags = merged.slice(0, 25);
+      setSuggestedTags(allTags);
+      // Auto-select top 10 as primary; rest stored but not selected by default
+      setSelectedTags(new Set(allTags.slice(0, 10)));
     } catch (e) {
       if (e.name !== 'AbortError') setSuggestedTags([]);
     } finally {
@@ -345,9 +383,33 @@ export default function QuickAdd({ onAdd, initial, aiEnabled }) {
 
   useEffect(() => {
     if (!urlMeta) return;
+
+    // For YouTube: fetch transcript first, fall back to description
+    if (urlMeta.type === 'youtube' && urlMeta.videoId && aiEnabled) {
+      setTagsLoading(true);
+      fetch(`/api/youtube-transcript?v=${encodeURIComponent(urlMeta.videoId)}`)
+        .then(r => r.ok ? r.json() : null)
+        .then(data => {
+          const transcript = data?.transcript;
+          if (transcript && transcript.length > 100) {
+            // Use full transcript for rich tag analysis
+            analyzeText(transcript, 'youtube');
+          } else {
+            // No transcript available — fall back to title + description
+            const fallback = [urlMeta.title, urlMeta.description].filter(Boolean).join(' ');
+            if (fallback) analyzeText(fallback, 'youtube');
+          }
+        })
+        .catch(() => {
+          const fallback = urlMeta.description || urlMeta.title || '';
+          if (fallback) analyzeText(fallback, 'youtube');
+        });
+      return;
+    }
+
     const textToAnalyze = urlMeta.description || urlMeta.title || '';
     if (textToAnalyze) analyzeText(textToAnalyze, urlMeta.type);
-  }, [urlMeta, analyzeText]);
+  }, [urlMeta, analyzeText, aiEnabled]);
 
   // ── File processing ─────────────────────────────────────────────
   const processFile = useCallback(async (file) => {
@@ -455,11 +517,13 @@ export default function QuickAdd({ onAdd, initial, aiEnabled }) {
                         const textData = await textRes.json();
                         for (const t of (textData.suggestedTags || [])) {
                           if (!allTags.includes(t)) allTags.push(t);
-                          if (allTags.length >= 10) break;
+                          if (allTags.length >= 25) break;
                         }
                       }
                     }
-                    setSuggestedTags(allTags.slice(0, 10));
+                    const videoTags = allTags.slice(0, 25);
+                    setSuggestedTags(videoTags);
+                    setSelectedTags(new Set(videoTags.slice(0, 10)));
                   } catch { /* ignore */ }
                 }
               }
@@ -539,11 +603,13 @@ export default function QuickAdd({ onAdd, initial, aiEnabled }) {
               const textData = await textRes.json();
               for (const t of (textData.suggestedTags || [])) {
                 if (!allTags.includes(t)) allTags.push(t);
-                if (allTags.length >= 10) break;
+                if (allTags.length >= 25) break;
               }
             }
           }
-          setSuggestedTags(allTags.slice(0, 10));
+          const imageTags = allTags.slice(0, 25);
+          setSuggestedTags(imageTags);
+          setSelectedTags(new Set(imageTags.slice(0, 10)));
           file._imageAnalysis = data;
         } catch (e) {
           console.error('Image analysis error:', e);

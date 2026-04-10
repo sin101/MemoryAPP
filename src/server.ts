@@ -12,6 +12,7 @@ import { createServer } from 'http';
 import { config } from './config.js';
 import { fetchUrlMeta } from './urlFetcher.js';
 import { analyzeContent, analyzeContentAsync } from './contentAnalyzer.js';
+import { fetchYouTubeTranscript } from './contentExtractor.js';
 
 // ── Simple LRU cache for /api/analyze ─────────────────────────────────────
 const ANALYZE_CACHE_SIZE = 200;
@@ -514,6 +515,39 @@ api.get('/api/fetch-url', async (req, res, next) => {
     const meta = await fetchUrlMeta(url, false);
     res.set('Cache-Control', 'public, max-age=3600');
     res.json(meta);
+  } catch (e) {
+    next(e);
+  }
+});
+
+// Transcript cache: videoId → {text, ts}
+const transcriptCache = new Map<string, { text: string; ts: number }>();
+const TRANSCRIPT_TTL = 30 * 60 * 1000; // 30 minutes
+
+api.get('/api/youtube-transcript', async (req, res, next) => {
+  try {
+    const videoId = typeof req.query.v === 'string' ? req.query.v.trim() : null;
+    if (!videoId || !/^[A-Za-z0-9_-]{6,16}$/.test(videoId)) {
+      res.status(400).json({ error: 'Invalid videoId' });
+      return;
+    }
+    // Check cache
+    const cached = transcriptCache.get(videoId);
+    if (cached && Date.now() - cached.ts < TRANSCRIPT_TTL) {
+      res.set('Cache-Control', 'public, max-age=1800');
+      res.json({ videoId, transcript: cached.text });
+      return;
+    }
+    const transcript = await fetchYouTubeTranscript(videoId);
+    if (transcript) {
+      transcriptCache.set(videoId, { text: transcript, ts: Date.now() });
+      if (transcriptCache.size > 100) {
+        const oldest = [...transcriptCache.entries()].sort((a, b) => a[1].ts - b[1].ts)[0];
+        transcriptCache.delete(oldest[0]);
+      }
+    }
+    res.set('Cache-Control', 'public, max-age=1800');
+    res.json({ videoId, transcript: transcript || null });
   } catch (e) {
     next(e);
   }

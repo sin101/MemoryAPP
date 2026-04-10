@@ -121,12 +121,30 @@ export default function CardDetailModal({ card, onClose, onEdit, onDelete }) {
           )}
 
           {card.tags?.length > 0 && (
-            <div className="flex flex-wrap gap-1.5 mb-3">
-              {card.tags.map(tag => (
-                <span key={tag} className="px-2 py-0.5 text-xs rounded-full text-gray-700 dark:text-gray-200 font-medium" style={{ backgroundColor: tagColor(tag) }}>
-                  {tag}
-                </span>
-              ))}
+            <div className="mb-3">
+              {/* Top 10 — displayed tags */}
+              <div className="flex flex-wrap gap-1.5">
+                {card.tags.slice(0, 10).map(tag => (
+                  <span key={tag} className="px-2 py-0.5 text-xs rounded-full text-gray-700 dark:text-gray-200 font-medium" style={{ backgroundColor: tagColor(tag) }}>
+                    {tag}
+                  </span>
+                ))}
+              </div>
+              {/* Additional stored data points */}
+              {card.tags.length > 10 && (
+                <details className="mt-1.5">
+                  <summary className="text-xs text-gray-400 dark:text-gray-500 cursor-pointer hover:text-gray-600 dark:hover:text-gray-300 select-none">
+                    +{card.tags.length - 10} more data points (used for matching &amp; suggestions)
+                  </summary>
+                  <div className="flex flex-wrap gap-1 mt-1.5">
+                    {card.tags.slice(10).map(tag => (
+                      <span key={tag} className="px-1.5 py-px text-xs rounded text-gray-500 dark:text-gray-400 bg-gray-100 dark:bg-gray-800 border border-gray-200 dark:border-gray-700">
+                        {tag}
+                      </span>
+                    ))}
+                  </div>
+                </details>
+              )}
             </div>
           )}
 

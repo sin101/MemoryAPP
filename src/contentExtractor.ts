@@ -75,7 +75,7 @@ interface TranscriptEntry {
   offset: number;
 }
 
-async function fetchYouTubeTranscript(videoId: string): Promise<string | null> {
+export async function fetchYouTubeTranscript(videoId: string): Promise<string | null> {
   try {
     // Dynamic import so the rest of the module still works if pkg missing
     const { YoutubeTranscript } = await import('youtube-transcript');
