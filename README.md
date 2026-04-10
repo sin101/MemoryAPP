@@ -1,45 +1,88 @@
 # MemoryAPP
 
-This repository contains a small prototype of a personal content manager based on the accompanying specification.
+An offline-first personal content manager. Capture anything — text, URLs, images, PDFs, audio, video — enrich it with AI-generated tags and summaries, organize into decks, and retrieve via fuzzy or semantic search.
 
-## Key Features
-- Stylized card illustrations generated from text prompts or offline art-deco patterns
-- Force-directed graph view with draggable, persisted node positions
-- Browser clipper that captures page selections with screenshots,
-  stores them as card illustrations, and queues clips offline
-- Customizable themes and smart decks for Recent, Frequent, Unseen, Stale, and popular tags
-- Virtualized card grid that only renders visible cards using `react-window`
+## Features
 
-## Development
+### Content Capture
+- Paste, drag-and-drop, or type URLs directly into the quick-add bar
+- YouTube URLs → full transcript fetched and analyzed (not just title/description)
+- Images → Pollinations vision analysis (scene, objects, colors, text, brands)
+- Video files → first-frame extraction + vision analysis
+- PDFs → full text extraction via pdfjs-dist
+- Audio/video files uploaded as base64 media notes
 
-The current implementation is a minimal Node.js library that can create cards, organize them into decks and perform simple tag-based, text-based, and semantic search. Semantic queries run against a locality-sensitive hash index for faster lookups. Cards include a type, creation date, and optional description. A lightweight enrichment routine can automatically generate tags and a short description from the card content and may be disabled for an offline-only experience. Cards can be updated, linked together, removed safely, and the library will keep deck, link, and tag references in sync. Decks may also be removed while cleaning up card references. Data can be exported to or imported from JSON files for simple local persistence, and graph-friendly node/edge data can be generated for visualizing links between cards.
-The graph helper can filter by deck, tag, or link type and includes each card's deck memberships.
+### AI Enrichment (offline-capable, no API keys required)
+- **25 tags per card**: top 10 displayed; all 25 used for search, matching, deck creation, relation lines, and suggestions
+- TextRank extractive summarization (fully offline)
+- TF-IDF RAKE keyword extraction (fully offline)
+- Pollinations.ai LLM tag generation (free, no key, browser-side)
+- Illustration generation via Pollinations image model
+- Topic classification across 15 categories
 
-Cards now receive simple input processing: when AI features are enabled the content or source is summarized and a placeholder illustration filename is generated. Each card retains the original source (text, file path, URL, etc.) alongside a normalized `content` field, allowing the app to track any type of material—from images and audio to videos and web links. Depending on the card type, audio and video sources are first transcribed and URLs have their main text extracted before summarization. The AI layer is pluggable, allowing integration with external language or image models to supply custom summaries and illustrations, and a lightweight chatbot can answer natural-language queries to help locate cards. A tiny SQLite-backed store can also persist cards to disk and reload them on startup.
+### Card Grid
+- Mini-card grid with hover tooltips (image, summary, tags, date)
+- SVG relation lines between cards sharing tags (top 3 connections per card)
+- Related cards highlighted on hover with blue ring
+- Click to open full card detail
 
-Recent additions include optional encrypted export/import, ZIP archival of data and media, a simple logging facility, and an all-in-one toggle to disable external network access. The frontend prototype now registers as a PWA with a service worker and manifest, persists data in IndexedDB with AES encryption, supports drag-and-drop or pasted files via a quick add box—including image, video, and audio notes—displays suggestions with Add/Edit/Ignore/View actions, features a deck sidebar with Pokémon-style card theming, customizable tag palettes and themes, and offers an experimental graph view with draggable nodes.
+### Organization
+- Manual decks + automatic tag-based decks (any tag shared by ≥2 cards)
+- Smart decks: Recent (7d), Frequent (top 10%), Unseen, Stale (30d)
+- Tag filter, deck filter, fuzzy search (Fuse.js), semantic search (LSH embeddings)
 
-Cards now receive stylized illustrations from text-to-image models or locally generated art-deco SVG patterns, the graph view employs a force-directed layout with persisted node positions, the browser clipper captures page screenshots and stores them as card illustrations, supports an API token, and queues clips offline for cross-browser use, and frequently viewed cards join tag-based smart decks alongside Recent, Unseen, and Stale lists. Header pickers let you adjust the accent, background, text hues, and font for both light and dark themes.
+### Suggestions Panel (per selected card)
+- **Related local cards** — cards sharing ≥2 tags
+- **AI recommendations** — Pollinations generates 4 specific resource links
+- **Web lookups** — Wikipedia, Reddit, RSS using up to 5 card tags
 
-An event system makes the prototype dynamic and responsive. `MemoryApp` emits `cardCreated`, `cardUpdated`, `cardRemoved`, `deckRemoved`, and `cardProcessed` events so external interfaces can react to changes. The server now exposes these events via a Server-Sent Events stream at `/api/events`, allowing clients to receive real-time updates without polling. For even snappier interactions, construct the app with `{ backgroundProcessing: true }` to defer AI work; creation and updates will return immediately and a `cardProcessed` event will fire once summarization and illustration generation finish.
+### Persistence & Sync
+- IndexedDB with AES encryption (client-side key, offline-first)
+- SQLite server-side (optional, set `DB_PATH` env var)
+- Optimistic load: local cards shown immediately on startup, server syncs in background
+- Real-time sync via Server-Sent Events across tabs/clients
 
-When a `HUGGINGFACE_API_KEY` environment variable is present, the app will query the Hugging Face Hub to pick popular models for summarization, chat, speech recognition, and image generation. These selections are cached at runtime and used for rich summaries, chatbot answers, and illustrative images. Without the key, a simple heuristic AI remains available for offline use.
+### Graph View
+- React Flow force-directed graph of linked cards
+- Drag nodes; positions persisted in localStorage
 
-The prototype also experiments with web suggestions: when enabled, the app will gather card tags and query public sources such as RSS feeds and Reddit to propose related content, with YouTube used for video cards and ArXiv for academic material. Suggestions can be turned off for privacy or offline use. The API now exposes helpers to retrieve recommendations for a selected card or to surface theme suggestions from the most common tags. A small static demo in the `public/` folder presents a Pokémon-style card layout and populates a suggestion list using these sources whenever a card or theme is selected.
+---
 
-### YouTube API key
+## Quick Start
 
-Video suggestions rely on the YouTube Data API. Provide a key by setting `window.YT_API_KEY` in your browser console, for example:
+```bash
+npm install
+npm run frontend:build
 
-```js
-window.YT_API_KEY = 'your-key-here';
+# Start both server and frontend
+npm run app:start
+
+# Or separately in dev mode
+npm start              # Backend on :3000
+npm run frontend:dev   # Frontend on :5173 (proxies /api → :3000)
 ```
 
-If no key is present, the demo will prompt for one when a YouTube request is made.
+Open `http://localhost:5173` (dev) or `http://localhost:3000` (production build).
 
-### Local Transformers models
+---
 
-For offline summarization and text embeddings, you can download small models for use with [Transformers.js](https://github.com/xenova/transformers.js). The app checks for models in a local `models/` directory and uses them when available, otherwise it falls back to Hugging Face's hosted API if `HUGGINGFACE_API_KEY` is set.
+## Environment Variables
+
+| Variable | Default | Purpose |
+|----------|---------|---------|
+| `PORT` | `3000` | Server port |
+| `DB_PATH` | (in-memory) | SQLite file path for persistence |
+| `ENCRYPTION_KEY` | (none) | AES key for server-side storage encryption |
+| `API_TOKEN` | (none) | Bearer token for API authentication |
+| `HUGGINGFACE_API_KEY` | (none) | Enables Hugging Face models for richer AI |
+| `LOG_PATH` | (none) | JSON log file path |
+| `RATE_LIMIT_MAX` | `100` | API requests per minute |
+
+---
+
+## Local Transformer Models (Optional)
+
+For fully offline summarization and embeddings:
 
 ```bash
 mkdir -p models/summarization models/embedding
@@ -47,21 +90,41 @@ npx @xenova/transformers-cli download --model Xenova/distilbart-cnn-6-6 --dir mo
 npx @xenova/transformers-cli download --model Xenova/all-MiniLM-L6-v2 --dir models/embedding
 ```
 
-Summarization uses `Xenova/distilbart-cnn-6-6` and embeddings use the MiniLM model `Xenova/all-MiniLM-L6-v2`.
+Without these, the app uses TextRank (offline) for summarization and heuristic embeddings for semantic search.
 
-### Running tests
+---
+
+## Development
+
+```bash
+npm test                          # Build + run test suite
+npm run lint --prefix frontend    # ESLint on frontend code
+npm run build                     # Compile TypeScript
+```
+
+---
+
+## Desktop Build (Electron)
+
+```bash
+npm run desktop:build
+```
+
+---
+
+## Architecture
 
 ```
-npm test
+Browser (React + Vite)
+  ├─ IndexedDB (AES encrypted) — optimistic offline load
+  ├─ EventSource /api/events   — real-time SSE from server
+  └─ fetch /api/*              — REST mutations
+       │
+       Express (port 3000)
+         ├─ MemoryApp class   — in-memory cards/decks/links, tag index, LSH index
+         ├─ SQLite (optional) — persistent storage
+         ├─ AI Worker thread  — non-blocking summarize/embed/illustrate
+         └─ Pollinations.ai   — image generation (server) + tag/vision (browser)
 ```
 
-### Server security
-
-The API server uses Helmet for common security headers and applies basic rate limiting.
-You can adjust the request limit per minute with the `RATE_LIMIT_MAX` environment variable.
-
-### Desktop build
-
-```
-npm run desktop:pack
-```
+See [CLAUDE.md](CLAUDE.md) for the full developer guide including all API endpoints, data models, patterns, and coding rules.
