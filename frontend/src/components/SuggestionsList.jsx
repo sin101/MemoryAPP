@@ -101,7 +101,16 @@ export default function SuggestionsList({ card, cards = [], enabled = true, onAd
   // Related local cards
   const relatedCards = useMemo(() => (card ? findRelatedCards(card, cards) : []), [card, cards]);
 
-  // Web lookup suggestions
+  const cardId = card?.id ?? null;
+
+  // Reset ignored + clear stale results whenever the selected card changes
+  useEffect(() => {
+    setIgnored(new Set());
+    setWebSuggestions([]);
+    setAiSuggestions([]);
+  }, [cardId]);
+
+  // Web lookup suggestions — keyed on both card id AND tag set
   useEffect(() => {
     if (!enabled || !topTags.length) { setWebSuggestions([]); return; }
     const controller = new AbortController();
@@ -117,7 +126,7 @@ export default function SuggestionsList({ card, cards = [], enabled = true, onAd
       });
     return () => controller.abort();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [enabled, tagKey]);
+  }, [enabled, cardId, tagKey]);
 
   // Pollinations AI suggestions (only when a specific card is selected)
   useEffect(() => {
@@ -131,7 +140,7 @@ export default function SuggestionsList({ card, cards = [], enabled = true, onAd
       })
       .finally(() => { if (!controller.signal.aborted) setAiLoading(false); });
     return () => { controller.abort(); setAiLoading(false); };
-  }, [enabled, card?.id]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [enabled, cardId]); // eslint-disable-line react-hooks/exhaustive-deps
 
   if (!enabled) return <p className="text-gray-500 text-sm">Web suggestions disabled</p>;
 

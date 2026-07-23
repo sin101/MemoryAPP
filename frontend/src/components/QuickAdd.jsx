@@ -18,6 +18,130 @@ const TYPE_LABELS = {
 const FILE_SIZE_WARN_MB = 20; // warn above this
 const FILE_SIZE_MAX_MB  = 50; // block above this
 
+// ── Image analysis helpers ─────────────────────────────────────────────────
+
+function normalizeTag(t) {
+  return String(t).toLowerCase()
+    .replace(/,\s*/g, ' ').replace(/\s+/g, '-').replace(/[^a-z0-9-]/g, '').replace(/-+/g, '-').replace(/^-|-$/g, '')
+    .slice(0, 32);
+}
+
+/** Resize a base64 image to maxDim px on the longest side, returns JPEG base64 */
+async function resizeBase64(base64, mime, maxDim = 768) {
+  return new Promise(resolve => {
+    const img = new Image();
+    img.onload = () => {
+      const scale = Math.min(1, maxDim / Math.max(img.width || maxDim, img.height || maxDim));
+      if (scale >= 1) { resolve({ base64, mime: 'image/jpeg' }); return; }
+      const canvas = document.createElement('canvas');
+      canvas.width  = Math.round(img.width  * scale);
+      canvas.height = Math.round(img.height * scale);
+      canvas.getContext('2d').drawImage(img, 0, 0, canvas.width, canvas.height);
+      resolve({ base64: canvas.toDataURL('image/jpeg', 0.82).split(',')[1], mime: 'image/jpeg' });
+    };
+    img.onerror = () => resolve({ base64, mime });
+    img.src = `data:${mime};base64,${base64}`;
+  });
+}
+
+function base64ToBlob(base64, mime) {
+  const bytes = Uint8Array.from(atob(base64), c => c.charCodeAt(0));
+  return new Blob([bytes], { type: mime });
+}
+
+const VISION_PROMPT =
+  'Analyze this image. Identify: subjects, objects, people, animals, scene/setting, colors, mood, style, ' +
+  'visible text, brands, landmarks, activities, themes. ' +
+  'Reply ONLY with valid JSON (no markdown, no code fences): ' +
+  '{"description":"2-3 sentence detailed description","extractedText":"any visible text verbatim or empty string",' +
+  '"tags":["tag1","tag2","tag3","tag4","tag5","tag6","tag7","tag8","tag9","tag10"]}. ' +
+  'Tags: specific nouns, named entities, domain phrases — never generic words.';
+
+/** Provider 1: Pollinations vision (openai model — supports image_url) */
+async function analyzeWithPollinations(base64, mime, signal) {
+  try {
+    const res = await fetch('https://text.pollinations.ai/openai', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        model: 'openai',
+        messages: [{ role: 'user', content: [
+          { type: 'text', text: VISION_PROMPT },
+          { type: 'image_url', image_url: { url: `data:${mime};base64,${base64}` } },
+        ]}],
+        max_tokens: 500,
+      }),
+      signal,
+    });
+    if (!res.ok) return null;
+    const j = await res.json();
+    const content = j.choices?.[0]?.message?.content ?? '';
+    if (!content || content.includes('IMPORTANT NOTICE') || content.includes('deprecated')) return null;
+    const match = content.match(/\{[\s\S]*?\}/);
+    if (!match) return null;
+    const parsed = JSON.parse(match[0]);
+    const tags = Array.isArray(parsed.tags) ? parsed.tags.map(normalizeTag).filter(t => t.length > 2) : [];
+    if (!parsed.description && !tags.length) return null;
+    return { description: String(parsed.description || ''), extractedText: String(parsed.extractedText || ''), tags };
+  } catch { return null; }
+}
+
+/** Provider 2: HuggingFace BLIP captioning + ViT classification (no API key needed, free public inference) */
+async function analyzeWithHuggingFace(base64, mime, signal) {
+  const blob = base64ToBlob(base64, mime);
+  const hfFetch = (model) => fetch(
+    `https://api-inference.huggingface.co/models/${model}`,
+    { method: 'POST', headers: { 'Content-Type': mime }, body: blob, signal }
+  ).then(r => {
+    if (r.status === 503) return null; // model loading — don't wait
+    return r.ok ? r.json() : null;
+  }).catch(() => null);
+
+  const [captionData, classifyData] = await Promise.all([
+    hfFetch('Salesforce/blip-image-captioning-large'),
+    hfFetch('google/vit-base-patch16-224'),
+  ]);
+
+  const description = Array.isArray(captionData) ? (captionData[0]?.generated_text || '') : '';
+  const classifyTags = Array.isArray(classifyData)
+    ? classifyData.filter(d => (d.score || 0) > 0.04).slice(0, 8).map(d => normalizeTag(d.label || '')).filter(t => t.length > 2)
+    : [];
+
+  if (!description && !classifyTags.length) return null;
+  return { description, extractedText: '', tags: classifyTags };
+}
+
+/**
+ * Analyze an image using a provider waterfall:
+ * Pollinations (15s) → HuggingFace BLIP+ViT (20s) → empty result
+ */
+async function analyzeImageContent(base64, mime, signal) {
+  // Resize to 768px to reduce payload and improve reliability
+  const { base64: small, mime: smallMime } = await resizeBase64(base64, mime, 768);
+
+  // Provider 1: Pollinations with a hard 15s timeout
+  const pc = new AbortController();
+  const pt = setTimeout(() => pc.abort(), 15000);
+  try {
+    const result = await analyzeWithPollinations(small, smallMime, pc.signal);
+    clearTimeout(pt);
+    if (result && (result.description || result.tags.length)) return result;
+  } catch { /* fall through */ } finally { clearTimeout(pt); }
+
+  if (signal?.aborted) return { description: '', extractedText: '', tags: [] };
+
+  // Provider 2: HuggingFace with a 20s timeout
+  const hc = new AbortController();
+  const ht = setTimeout(() => hc.abort(), 20000);
+  try {
+    const result = await analyzeWithHuggingFace(small, smallMime, hc.signal);
+    clearTimeout(ht);
+    if (result) return result;
+  } catch { /* fall through */ } finally { clearTimeout(ht); }
+
+  return { description: '', extractedText: '', tags: [] };
+}
+
 function fmt(bytes) {
   if (bytes < 1024) return `${bytes} B`;
   if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
@@ -475,59 +599,28 @@ export default function QuickAdd({ onAdd, initial, aiEnabled }) {
           });
 
           if (frameBase64) {
-            const visionPrompt =
-              'This is a frame from a video. Analyze it: identify scene, objects, people, activities, setting, colors, any text on screen, and the likely video topic/genre. ' +
-              'Reply ONLY with this exact JSON (no markdown): ' +
-              '{"description":"3-4 sentence description of the video content based on this frame","extractedText":"any text visible on screen or empty string","tags":["tag1","tag2","tag3","tag4","tag5","tag6","tag7","tag8","tag9","tag10"]}. ' +
-              'Tags must be specific: genre, topic, activity, location, people type — not generic words.';
-            const res = await fetch('https://text.pollinations.ai/openai', {
-              method: 'POST',
-              headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({
-                model: 'openai-large',
-                messages: [{ role: 'user', content: [
-                  { type: 'text', text: visionPrompt },
-                  { type: 'image_url', image_url: { url: `data:image/jpeg;base64,${frameBase64}` } },
-                ]}],
-                max_tokens: 600,
-              }),
-              signal: AbortSignal.timeout(30000),
-            });
-            if (res.ok) {
-              const json = await res.json();
-              const content = json.choices?.[0]?.message?.content ?? '';
-              if (!content.includes('IMPORTANT NOTICE') && !content.includes('deprecated')) {
-                const match = content.match(/\{[\s\S]*\}/);
-                if (match) {
-                  try {
-                    const parsed = JSON.parse(match[0]);
-                    const vTags = Array.isArray(parsed.tags)
-                      ? parsed.tags.map(t => String(t).toLowerCase().replace(/\s+/g, '-').replace(/[^a-z0-9-]/g, '').slice(0, 32)).filter(t => t.length > 2)
-                      : [];
-                    // Also analyze filename
-                    const nameText = file.name.replace(/\.[^.]+$/, '').replace(/[-_.]/g, ' ');
-                    const allTags = [...vTags];
-                    if (nameText.length > 3) {
-                      const textRes = await fetch('/api/analyze', {
-                        method: 'POST',
-                        headers: { 'Content-Type': 'application/json' },
-                        body: JSON.stringify({ text: nameText + ' ' + (parsed.description || ''), type: 'video' }),
-                      });
-                      if (textRes.ok) {
-                        const textData = await textRes.json();
-                        for (const t of (textData.suggestedTags || [])) {
-                          if (!allTags.includes(t)) allTags.push(t);
-                          if (allTags.length >= 25) break;
-                        }
-                      }
-                    }
-                    const videoTags = allTags.slice(0, 25);
-                    setSuggestedTags(videoTags);
-                    setSelectedTags(new Set(videoTags.slice(0, 10)));
-                  } catch { /* ignore */ }
+            // Multi-provider: Pollinations → HuggingFace BLIP+ViT (same waterfall as images)
+            const frameData = await analyzeImageContent(frameBase64, 'image/jpeg', null);
+            const nameText = file.name.replace(/\.[^.]+$/, '').replace(/[-_.]/g, ' ');
+            const allTags = [...frameData.tags];
+            const combined = [frameData.description, nameText].filter(Boolean).join(' ');
+            if (combined.length > 3) {
+              const textRes = await fetch('/api/analyze', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ text: combined, type: 'video' }),
+              });
+              if (textRes.ok) {
+                const textData = await textRes.json();
+                for (const t of (textData.suggestedTags || [])) {
+                  if (!allTags.includes(t)) allTags.push(t);
+                  if (allTags.length >= 25) break;
                 }
               }
             }
+            const videoTags = allTags.slice(0, 25);
+            setSuggestedTags(videoTags);
+            setSelectedTags(new Set(videoTags.slice(0, 10)));
           } else {
             // No frame extracted — fall back to filename analysis
             const nameText = file.name.replace(/\.[^.]+$/, '').replace(/[-_.]/g, ' ');
@@ -539,7 +632,6 @@ export default function QuickAdd({ onAdd, initial, aiEnabled }) {
           setTagsLoading(false);
         }
       } else if (kind === 'image' && aiEnabled) {
-        // Analyze image via Pollinations vision API (called directly from browser)
         const dataUrl = await new Promise((resolve, reject) => {
           const r = new FileReader();
           r.onload = () => resolve(r.result);
@@ -551,46 +643,10 @@ export default function QuickAdd({ onAdd, initial, aiEnabled }) {
         setTagsLoading(true);
         setSuggestedTags([]);
         try {
-          const visionPrompt =
-            'Analyze this image in detail. Identify: main subjects, objects, people, animals, scene/setting, colors, mood, style, any visible text, brands, landmarks, activities, and dominant themes. ' +
-            'Reply ONLY with this exact JSON (no markdown, no code fences, no extra text): ' +
-            '{"description":"3-4 sentence detailed description of everything you see","extractedText":"any text or words visible in the image verbatim, or empty string","tags":["tag1","tag2","tag3","tag4","tag5","tag6","tag7","tag8","tag9","tag10"]}. ' +
-            'Tags must be specific nouns, named entities, or domain phrases — not generic words.';
-          const res = await fetch('https://text.pollinations.ai/openai', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-              model: 'openai-large',
-              messages: [{
-                role: 'user',
-                content: [
-                  { type: 'text', text: visionPrompt },
-                  { type: 'image_url', image_url: { url: `data:${mime};base64,${base64}` } },
-                ],
-              }],
-              max_tokens: 600,
-            }),
-            signal: AbortSignal.timeout(30000),
-          });
-          let data = { description: '', extractedText: '', tags: [] };
-          if (res.ok) {
-            const json = await res.json();
-            const content = json.choices?.[0]?.message?.content ?? '';
-            if (!content.includes('IMPORTANT NOTICE') && !content.includes('deprecated')) {
-              const match = content.match(/\{[\s\S]*\}/);
-              if (match) {
-                try {
-                  const parsed = JSON.parse(match[0]);
-                  data = {
-                    description: String(parsed.description ?? ''),
-                    extractedText: String(parsed.extractedText ?? ''),
-                    tags: Array.isArray(parsed.tags) ? parsed.tags.map(t => String(t).toLowerCase().replace(/\s+/g, '-').replace(/[^a-z0-9-]/g, '').slice(0, 32)).filter(t => t.length > 2) : [],
-                  };
-                } catch { /* ignore parse error */ }
-              }
-            }
-          }
-          // Combine with RAKE on description text + filename to add more tags
+          // Multi-provider: Pollinations → HuggingFace BLIP+ViT
+          const data = await analyzeImageContent(base64, mime, null);
+
+          // Augment with RAKE on description + filename
           const combinedText = [data.description, data.extractedText, file.name.replace(/\.[^.]+$/, '').replace(/[-_.]/g, ' ')].filter(Boolean).join(' ');
           const allTags = [...data.tags];
           if (combinedText.length > 20) {
